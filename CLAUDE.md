@@ -17,7 +17,7 @@ Project-level guidance for Claude Code and any AI assistant working in this repo
 
 ## 2. Hard Rules (Non-Negotiable)
 
-1. **English only.** Every identifier, comment, commit message, asset name, log string and `TODO` is written in English. No Spanish in code.
+1. **English only in code.** Every identifier, comment, commit message, asset name, log string and `TODO` is written in English. No Spanish in code. *Design documents (`zigzag_gdd.md`, `zigzag_architecture.md`, and other author-written `.md` decision logs) may be in Spanish for author velocity — this exception covers prose only; code identifiers and inline comments remain English even when cited from a Spanish design doc.*
 2. **Long-term work is `TODO:`** — never silently deferred. Format: `// TODO: <short description> (<owner-or-context>)`. Never `FIXME`, `XXX`, or untagged notes.
 3. **Game design patterns are mandatory** for any non-trivial system (see §6). No ad-hoc managers, no god classes.
 4. **Encapsulation is mandatory** (see §5). No `public` mutable fields. No exposed mutable state.
