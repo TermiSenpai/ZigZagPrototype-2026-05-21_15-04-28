@@ -1,0 +1,17 @@
+{
+    "name": "ZigZag.Runtime.Gameplay",
+    "rootNamespace": "ZigZag.Runtime.Gameplay",
+    "references": [
+        "ZigZag.Runtime.Data",
+        "ZigZag.Runtime.Input"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
