@@ -39,6 +39,10 @@ namespace ZigZag.Runtime.Data
         [SerializeField, Tooltip("Layers considered solid ground for the ball.")]
         private LayerMask _groundLayerMask = ~0;
 
+        [Header("Camera")]
+        [SerializeField, Tooltip("SmoothDamp approach time used by the camera follow. 0 = snap, higher = laggier.")]
+        private float _cameraFollowSmoothTime = 0.15f;
+
         public float InitialSpeed => _initialSpeed;
         public float Acceleration => _acceleration;
         public float MaxSpeed => _maxSpeed;
@@ -46,6 +50,7 @@ namespace ZigZag.Runtime.Data
         public float FallThreshold => _fallThreshold;
         public float GroundCheckDistance => _groundCheckDistance;
         public LayerMask GroundLayerMask => _groundLayerMask;
+        public float CameraFollowSmoothTime => _cameraFollowSmoothTime;
 
 #if UNITY_EDITOR
         private void OnValidate()
@@ -55,6 +60,7 @@ namespace ZigZag.Runtime.Data
             if (_maxSpeed < _initialSpeed) _maxSpeed = _initialSpeed;
             if (_fallSpeed < 0f) _fallSpeed = 0f;
             if (_groundCheckDistance < 0f) _groundCheckDistance = 0f;
+            if (_cameraFollowSmoothTime < 0f) _cameraFollowSmoothTime = 0f;
         }
 #endif
     }
