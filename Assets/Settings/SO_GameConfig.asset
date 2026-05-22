@@ -21,3 +21,12 @@ MonoBehaviour:
   _groundLayerMask:
     serializedVersion: 2
     m_Bits: 4294967295
+  _cameraFollowSmoothTime: 0.15
+  _pathStartPosition: {x: -2, y: -3, z: 3}
+  _cubeSize: {x: 1, y: 5, z: 1}
+  _segmentMinLength: 1
+  _segmentMaxLength: 5
+  _aheadBuffer: 30
+  _behindBuffer: 10
+  _generationSeed: 0
+  _platformPoolInitialSize: 50
