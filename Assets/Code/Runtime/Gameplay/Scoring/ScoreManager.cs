@@ -137,8 +137,7 @@ namespace ZigZag.Runtime.Gameplay.Scoring
             _isTracking = false;
             _gemScore = 0;
             _distanceScore = 0;
-            CurrentScore = 0;
-            _onScoreChanged.Raise(CurrentScore);
+            RecomputeAndBroadcast();
         }
 
         private void RecomputeAndBroadcast()
