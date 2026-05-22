@@ -186,3 +186,66 @@ Play → debería aparecer el menú. Click → bola se mueve. Click durante movi
 - **Retry vuelve a Menu, no autostart.** El plan original iba directo a Playing tras Retry; en playtest se siente brusco y rompe el ritmo. Ahora `HandleRetryRequested` deja el estado en `Menu` y `UIController.HandleGameReset` muestra el panel del menú. Hace falta un tap adicional para arrancar de nuevo, consistente con el primer arranque.
 - **Diagonal inicial cambiada a `(-1, 0, 1)`** (antes `(1, 0, 1)`). El path provisional se construyó en dirección `-X, +Z`, así que la bola tiene que arrancar por esa diagonal para subir por el camino y no salirse al primer paso. Ajustado en `BallController.Awake` y `ResetTo`; el bool `_isOnLeftDiagonal` arranca en `true` para que `FlipDirection` siga siendo simétrico.
 - **Pivote del modelo de dirección: ejes mundo puros, no diagonales 45°.** Segundo playtest revela que las "diagonales 45°" `(±1, 0, 1)` proyectadas por la cámara isométrica (-45° Y) salen del path porque éste se construyó con cubos alineados a los ejes mundo (estilo Ketchapp original). Las direcciones ahora son `AlongNegativeX = (-1, 0, 0)` y `AlongPositiveZ = (0, 0, 1)`. Con la cámara rotada, ambos ejes mundo aparecen como diagonales en pantalla — mismo visual, geometría correcta. El bool interno se renombra `_isOnXAxis`. GDD §5.1 y arquitectura §7.4 actualizados.
+
+---
+
+## 2026-05-22 — Iteración 3: generación procedural + pooling
+
+### Objetivo
+
+Reemplazar el `Path_Provisional` (cubos colocados a mano) por un generador que produce camino infinito reciclando cubos con `UnityEngine.Pool.ObjectPool<T>`. Sin `Instantiate`/`Destroy` después del `Awake` del pool. GDD §14 día 3.
+
+### Lo que se ha implementado
+
+1. **`GameConfigSO` extendido** con bloque `Path Generation` + `Pooling`:
+   - `_pathStartPosition = (-2, -3, 3)` — posición del primer cubo del path generado.
+   - `_cubeSize = (1, 5, 1)` — el cubo del usuario, alto para mejor visual.
+   - `_segmentMinLength = 1`, `_segmentMaxLength = 5` — tramo random en [1, 5] cubos.
+   - `_aheadBuffer = 30`, `_behindBuffer = 10` — medidos a lo largo del eje "global forward" `(-1, 0, 1)/√2`, la diagonal entre las dos direcciones que toma la bola.
+   - `_generationSeed = 0` — sentinela: cada Retry usa una seed distinta (`Environment.TickCount`) para que cada run sea aleatoria. Cualquier valor distinto de `0` activa modo determinista (mismo camino siempre, útil para debugging).
+   - `_platformPoolInitialSize = 50` — el pool prewarmea estos cubos en `Awake`.
+
+2. **Sub-feature `Gameplay/World/`** (asmdef `ZigZag.Runtime.Gameplay` ahora referencia `Events`):
+   - `Segment.cs` — clase pura C#. Lleva dirección + lista interna de cubos expuesta como `IReadOnlyList<GameObject>` (CLAUDE §5: no exponer colecciones mutables).
+   - `PlatformPool.cs` — wrapper sobre `ObjectPool<GameObject>`. Prewarmea en `Awake` (Get + Release en loop). Los cubos son parented a `transform` para mantener la jerarquía limpia. `maxSize = 2× initialSize` por si hay picos de presión.
+   - `PathGenerator.cs`:
+     - `Start` → `InitializePath()` puebla el camino hasta cubrir `AheadBuffer`. Esto pasa antes de que arranque la partida, así el menú ya muestra path debajo de la bola.
+     - `Update` (solo cuando `_isGenerating = true`) → `EnsureAhead()` + `RecycleBehind()`.
+     - `EnsureAhead`: spawna mientras `Vector3.Dot(lastCubePos - ballPos, GlobalForward) < AheadBuffer`. Cap de `MaxCubesSpawnedPerFrame = 20` como red de seguridad contra loops infinitos.
+     - `RecycleBehind`: si el último cubo del segmento más antiguo está a más de `BehindBuffer` por detrás (mismo dot product, signo invertido), libera todos sus cubos al pool y descarta el segmento.
+     - Determinismo: `System.Random` con seed (no `UnityEngine.Random`, que es global). Reinstanciado en cada `HandleGameReset` con la regla de `CreateRandom()`: seed `0` → `Environment.TickCount` (random por run, default); seed != 0 → determinista. CLAUDE.md §2 prohíbe `DateTime.Now` en gameplay; aquí el tick count se usa **solo** como semilla inicial, la simulación que sigue es totalmente determinista a partir de esa semilla, así que la regla se respeta en espíritu (no hay non-determinism dentro de la run).
+     - Suscripciones: `_onGameStarted` → arranca generación; `_onGameOver` → la para; `_onGameReset` → limpia path y rebuild desde `PathStartPosition`.
+
+3. **`GameBootstrap` resucitado** (`Core` asmdef, `DefaultExecutionOrder(-1000)`):
+   - Solo valida refs (`PlatformPool`, `PathGenerator`, `GameStateMachine`). No instancia ni resuelve; cada componente se autoinicializa en su `Awake`.
+   - **No** referencia `UIController` — eso forzaría a Core a referenciar UI y romper la dirección de asmdefs. La UI se valida a sí misma.
+
+### Decisiones técnicas (mini-ADRs locales a iter 3)
+
+- **Eje "global forward" = `(-1, 0, 1)/√2`** como métrica única para ahead/behind. Alternativa: rastrear distancia recorrida por la bola. Descartado: el dot product es O(1), sin estado, y se mantiene correcto aunque la bola haga zigzag.
+- **`Vector3.Dot` en lugar de distancia Manhattan o Euclídea.** Las distancias absolutas confunden ahead y behind. El dot con el eje global da signo: positivo = ahead, negativo = behind.
+- **`Queue<Segment>` para el conjunto activo.** FIFO natural: el segmento más antiguo es el más probable a estar detrás de la bola. `Peek` es O(1) y permite chequear el comienzo sin sacar.
+- **Pool prewarmeado en `Awake` con loop Get/Release**, no con `Instantiate` directo, porque el `ObjectPool<T>` mantiene su propio contador interno. Llamar `Instantiate` por fuera dejaría el contador inconsistente.
+- **Cap de 20 cubos por frame en `EnsureAhead`** como red de seguridad: a velocidad típica (5 u/s) el `AheadBuffer` (30) se consume en 6 segundos, lo que pide ~5 spawns/segundo, muy por debajo del cap. Si llega al cap es síntoma de bug, no de carga real.
+
+### Pendiente — setup manual en Unity
+
+1. **Crear `Assets/Prefabs/P_PlatformCube`** según la spec ya enviada — cubo escalado a `(1, 5, 1)`, sin scripts, Static OFF, layer `Default`.
+2. **En la escena**:
+   - **Borrar** el `Path_Provisional` y sus cubos hijos.
+   - **Crear GameObject `PlatformPool`** con el componente `PlatformPool`. Arrastrar `P_PlatformCube` al slot `_platformPrefab` y `SO_GameConfig` al slot `_config`.
+   - **Crear GameObject `PathGenerator`** con el componente `PathGenerator`. Slots: `_config` (SO_GameConfig), `_pool` (el GameObject `PlatformPool`), `_ballTransform` (Player), `_onGameStarted`, `_onGameOver`, `_onGameReset` (los 3 SO de eventos).
+   - **Crear GameObject `Bootstrap`** con el componente `GameBootstrap`. Slots: `_platformPool`, `_pathGenerator`, `_stateMachine` (el GameObject `GameStateMachine`).
+   - **Mover `BallSpawn`** a la posición sobre el primer cubo: `(-2, 0, 3)` (X y Z coinciden con el primer cubo en `(-2, -3, 3)`; Y `0` deja la bola con holgura de 0.5 sobre el top del cubo, que el raycast de 0.55 cubre).
+
+3. **Verificación**:
+   - Play → menú aparece. **El path ya está generado debajo de la bola y se ve hacia delante.** Si solo se ve el primer cubo, la inicialización no llegó al `AheadBuffer` — comprobar refs.
+   - Click → bola arranca, el path crece por delante.
+   - Tap durante movimiento → bola gira, sigue el siguiente tramo.
+   - Mirar el Profiler: cero `Instantiate` después del frame 1.
+   - Mirar la jerarquía dentro de `PlatformPool`: el número de hijos es estable (~50–60), no crece sin parar.
+   - **Aleatoriedad por run**: con `_generationSeed = 0` (default), cada Retry debe producir un camino distinto. Para verificar el modo determinista (debugging), poner `_generationSeed = 42` (o cualquier int distinto de 0): dos Retry consecutivos darán paths idénticos.
+
+### Próxima iteración (planteamiento)
+
+4. Gemas (`Gem`, `GemSpawner`, `GemPool`) + `ScoreManager` con persistencia (`PlayerPrefs`). HUD muestra score real. GDD §14 día 4.
