@@ -249,3 +249,52 @@ Reemplazar el `Path_Provisional` (cubos colocados a mano) por un generador que p
 ### Próxima iteración (planteamiento)
 
 4. Gemas (`Gem`, `GemSpawner`, `GemPool`) + `ScoreManager` con persistencia (`PlayerPrefs`). HUD muestra score real. GDD §14 día 4.
+
+---
+
+## 2026-05-22 — Iteración 4: gemas, score y persistencia
+
+### Objetivo
+
+Cerrar el loop con propósito: la bola recoge gemas, el score sube (gemas + distancia), el mejor record se persiste entre runs. GDD §14 día 4.
+
+### Lo que se ha implementado
+
+1. **`GameConfigSO` extendido** con tres bloques nuevos:
+   - `Gems`: `_gemSpawnProbability = 0.3` (por tramo), `_gemValue = 10`, `_gemHeightAboveCubeCenter = 3.2`.
+   - `Score`: `_distanceMultiplier = 1`.
+   - `Pooling`: `_gemPoolInitialSize = 20`.
+
+2. **Sub-feature `Gameplay/Collectibles/`** (mismo asmdef `ZigZag.Runtime.Gameplay`):
+   - `Gem.cs` — `MonoBehaviour` con `[RequireComponent(Collider, Rigidbody)]`. Trigger; al entrar la bola raises `SO_OnGemCollected(value)` y se devuelve al pool. Patrón `Initialize(value, pool)` para inyectar dependencias en cada `Get` del pool. `Awake` defensivo fuerza `isKinematic=true`, `useGravity=false`, `isTrigger=true` por si el prefab está mal configurado, y un `LogError + enabled=false` si falta el canal de evento (los `Debug.Assert` se compilan fuera en release).
+   - `GemPool.cs` — gemelo directo de `PlatformPool`. Mismo prewarm Get/Release en `Awake`, mismo `maxSize = 2× initialSize`.
+   - `GemSpawner.cs` — `TryPopulateSegment(Segment)` con dado contra `GemSpawnProbability`. RNG propio `System.Random` reseteado en `_onGameReset` (mismo seed que `PathGenerator`, instancias independientes). Mantiene `List<GameObject> _activeGems` para liberar gemas no recogidas al reset (TODO: prune cuando se introduzcan endurance runs).
+
+3. **Sub-feature `Gameplay/Scoring/`**:
+   - `ScoreCalculator.cs` — helper estático puro. `ComputeDistanceScore(ballPos, origin, forwardAxis, multiplier)` proyecta desplazamiento sobre `(-1,0,1)/√2` y devuelve `Mathf.FloorToInt(progress) * multiplier`, con clamp en cero para progreso negativo. Cubierto por 7 EditMode tests.
+   - `ScoreManager.cs` — `MonoBehaviour`. Acumula `_gemScore` (suma en `HandleGemCollected`) + `_distanceScore` (recomputado en `Update`). Solo raises `_onScoreChanged` cuando el total entero cambia, no cada frame. Persistencia: `PlayerPrefs.GetInt("BestScore", 0)` en `Awake`; `SetInt + Save` en `SaveBestIfHigher`, llamado al recibir `_onGameOver`. `HandleGameReset` también pasa por `RecomputeAndBroadcast` para no emitir un score-changed espurio si ya estaba a cero.
+
+4. **`PathGenerator` modificado** para invocar `_gemSpawner.TryPopulateSegment(_currentSegment)` justo antes de `FlipDirection + StartNewSegment`, es decir cuando un tramo alcanza su longitud objetivo. Campo opcional (sin assert) — si no hay spawner enganchado el path sigue generándose sin gemas. El último tramo de `InitializePath` no se finaliza por este camino y queda sin gema — known minor, se finaliza en cuanto la bola lo cruza.
+
+5. **`UIController` extendido** con tres `TextMeshProUGUI` (`_hudScoreText`, `_gameOverFinalScoreText`, `_bestScoreText`) y un GameObject opcional `_newRecordBadge`. Suscrito a `SO_OnScoreChanged` y `SO_OnBestScoreChanged`. El badge usa dos handlers cooperando (`HandleBestScoreChanged` + `HandleGameOver`) para resolverse independientemente del orden en que Unity dispare a los suscriptores de `_onGameOver` — `_newBestSeenInThisRun` se resetea en `HandleGameStarted`. Asmdef `ZigZag.Runtime.UI` añade referencia `Unity.TextMeshPro`.
+
+6. **`GameBootstrap` extendido** para validar `_scoreManager`, `_gemPool`, `_gemSpawner` en `Awake`. Sin cambios en asmdef (todos viven en `ZigZag.Runtime.Gameplay`).
+
+7. **Test harness EditMode estrenado** — primer `.asmdef` de tests del proyecto (`Assets/Code/Tests/EditMode/ZigZag.Tests.EditMode.asmdef`). 7 tests sobre `ScoreCalculator` (cero, progreso por -X, por +Z, diagonal, backwards-clamp, multiplier, multiplier cero).
+
+### Decisiones técnicas (mini-ADRs locales)
+
+- **Gem requiere `Rigidbody` kinematic, no la bola.** ADR-001 manda bola sin Rigidbody. Unity 2022.3 exige que al menos uno de los dos colliders tenga Rigidbody para disparar `OnTriggerEnter`. Solución: la gema lo lleva (`isKinematic=true, useGravity=false`) — la bola sigue siendo collider estático con transform que se mueve.
+- **Distancia medida por proyección sobre `GlobalForward`, no por `position.z`.** GDD §7.2 propuso `position.z` cuando el camino era diagonal `(1,0,1)`. Tras el rework a ejes mundo `-X/+Z` (iter 2 addendum), `position.z` ignoraría el progreso de los tramos `-X`. La proyección `Dot(pos - origin, (-1,0,1)/√2)` captura ambos correctamente.
+- **`ScoreCalculator` como `static class` puro.** Separar la aritmética de los side-effects (raises, PlayerPrefs) permite tests EditMode triviales y deja a `ScoreManager` reducido a 1-liners no testeables (los wires de eventos). YAGNI: no se introduce `IBestScoreStore` — `PlayerPrefs` con clave `"BestScore"` es la historia completa.
+- **`GemSpawner` con RNG propio.** Alternativa: pasar el `System.Random` de `PathGenerator`. Descartado porque acopla los dos sistemas. Cada uno tiene `System.Random` independiente seedeado con el mismo `_config.GenerationSeed`; las secuencias se consumen sin contaminarse y el run sigue siendo reproducible byte a byte por seed.
+- **Score se broadcastea solo cuando el entero cambia.** El proyectado `progress` es float pero el score es int; la mayoría de frames `Mathf.FloorToInt` no cruza umbral. Sin esta guarda el HUD reprintearía 60×/s.
+- **Badge de NEW RECORD resuelto sin asumir orden de suscriptores.** Unity no garantiza el orden en que los listeners de un `GameEventSO` se ejecutan. `ScoreManager.HandleGameOver` y `UIController.HandleGameOver` pueden dispararse en cualquier orden. La solución es un bool `_newBestSeenInThisRun` que el handler de `_onBestScoreChanged` marca cuando ve un récord nuevo, y dos puntos de activación del badge (uno en cada handler) que comprueban tanto el flag como `_gameOverPanel.activeSelf`. Funcionalmente correcto en ambos órdenes.
+
+### Pendiente — setup manual en Unity (todavía sin hacer)
+
+Cubierto íntegramente en `docs/superpowers/plans/2026-05-22-iteration-4-gems-and-score.md` Task 12. Resumen: crear `P_Gem.prefab`, añadir GameObjects `GemPool / GemSpawner / ScoreManager`, wire UI texts (HUD + GameOver + NewRecordBadge), wire `GameBootstrap` con las nuevas refs, etiquetar la bola con `Player`, fijar valores por defecto en `SO_GameConfig`. Hasta que se complete la wiring, el código compila pero la escena ejecuta el flujo iteración 3 (sin gemas, sin score real, HUD muestra "Score: 0" placeholder).
+
+### Próxima iteración (planteamiento)
+
+5. Powerup imán (`IPowerup`, `MagnetPowerup`, `PowerupManager`, `PowerupPool`). Atrae gemas en radio `R` durante `T` segundos. GDD §14 día 5. Demuestra que la arquitectura es extensible sin tocar `Gem`/`ScoreManager`.
