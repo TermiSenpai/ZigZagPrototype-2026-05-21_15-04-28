@@ -138,41 +138,39 @@ private void OnValidate()
 
 ## 4. Estructura de carpetas
 
-Alineada a [`CLAUDE.md` §3](CLAUDE.md). Todos los assets del juego cuelgan de `Assets/_Project/` para no mezclarse con third-party.
+Alineada a [`CLAUDE.md` §3](CLAUDE.md). **Layout plano sin prefijo `_Project/`** — paths más cortos, navegación más simple. El trade-off (mezcla alfabética con paquetes third-party si se importan en el futuro) se asume.
 
 ```
 Assets/
-├── _Project/
-│   ├── Art/                             # Sprites, modelos, texturas, materiales
-│   ├── Audio/                           # Clips, mixers
-│   ├── Code/
-│   │   ├── Runtime/
-│   │   │   ├── Core/                    # GameBootstrap, GameStateMachine, GameState (enum)
-│   │   │   ├── Gameplay/
-│   │   │   │   ├── Player/              # BallController
-│   │   │   │   ├── World/               # PathGenerator, Segment, PlatformPool
-│   │   │   │   ├── Collectibles/        # Gem, GemSpawner, GemPool
-│   │   │   │   ├── Powerups/            # IPowerup, MagnetPowerup, PowerupManager, PowerupPool
-│   │   │   │   ├── Scoring/             # ScoreManager, ScorePersistence
-│   │   │   │   └── CameraSystem/        # CameraFollow
-│   │   │   ├── Input/                   # InputHandler
-│   │   │   ├── UI/                      # UIController, MenuPanel, HUDPanel, GameOverPanel
-│   │   │   ├── Audio/                   # AudioManager
-│   │   │   ├── Data/                    # GameConfigSO
-│   │   │   ├── Events/                  # GameEventSO, GameEventSO<T>, IntGameEventSO, ...
-│   │   │   └── Utilities/               # Helpers puros, extensiones
-│   │   ├── Editor/                      # Tools editor-only
-│   │   └── Tests/
-│   │       ├── EditMode/
-│   │       └── PlayMode/
-│   ├── Prefabs/                         # P_Ball, P_PlatformCube, P_Gem, P_Magnet, ...
-│   ├── Scenes/                          # S_Main.unity
-│   ├── Settings/                        # SO_GameConfig.asset + assets de eventos SO_*
-│   └── VFX/
-└── Scenes/                              # Default de Unity. Borrar SampleScene cuando S_Main exista
+├── Art/                                 # Sprites, modelos, texturas, materiales
+├── Audio/                               # Clips, mixers
+├── Code/
+│   ├── Runtime/
+│   │   ├── Core/                        # GameBootstrap, GameStateMachine, GameState (enum)
+│   │   ├── Gameplay/
+│   │   │   ├── Player/                  # BallController
+│   │   │   ├── World/                   # PathGenerator, Segment, PlatformPool
+│   │   │   ├── Collectibles/            # Gem, GemSpawner, GemPool
+│   │   │   ├── Powerups/                # IPowerup, MagnetPowerup, PowerupManager, PowerupPool
+│   │   │   ├── Scoring/                 # ScoreManager, ScorePersistence
+│   │   │   └── CameraSystem/            # CameraFollow
+│   │   ├── Input/                       # InputHandler
+│   │   ├── UI/                          # UIController, MenuPanel, HUDPanel, GameOverPanel
+│   │   ├── Audio/                       # AudioManager
+│   │   ├── Data/                        # GameConfigSO
+│   │   ├── Events/                      # GameEventSO, GameEventSO<T>, IntGameEventSO, ...
+│   │   └── Utilities/                   # Helpers puros, extensiones
+│   ├── Editor/                          # Tools editor-only (asmdef con includePlatforms: [Editor])
+│   └── Tests/
+│       ├── EditMode/
+│       └── PlayMode/
+├── Prefabs/                             # P_Ball, P_PlatformCube, P_Gem, P_Magnet, ...
+├── Scenes/                              # S_Main.unity
+├── Settings/                            # SO_GameConfig.asset + assets de eventos SO_*
+└── VFX/
 ```
 
-**Prefijo `_Project/`:** se ordena alfabéticamente al principio y separa contenido propio de paquetes.
+**Naming de asmdef independiente del path:** los archivos `.asmdef` se llaman `ZigZag.<Layer>.<Feature>` (e.g. `ZigZag.Runtime.Data`) sin importar dónde estén físicamente. El nombre del assembly define el contrato de namespace; la ruta solo organiza ficheros.
 
 ---
 
@@ -182,17 +180,17 @@ Una `.asmdef` por carpeta de Runtime, según [`CLAUDE.md` §3](CLAUDE.md). El co
 
 | asmdef                         | Path                                              | Referencias internas                            | Notas                                                              |
 | ------------------------------ | ------------------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------ |
-| `ZigZag.Runtime.Core`          | `Assets/_Project/Code/Runtime/Core/`              | Events, Data                                    |                                                                    |
-| `ZigZag.Runtime.Data`          | `Assets/_Project/Code/Runtime/Data/`              | —                                               | Sólo `ScriptableObject` de configuración.                          |
-| `ZigZag.Runtime.Events`        | `Assets/_Project/Code/Runtime/Events/`            | —                                               | `GameEventSO` y variantes tipadas.                                 |
-| `ZigZag.Runtime.Input`         | `Assets/_Project/Code/Runtime/Input/`             | Events                                          |                                                                    |
-| `ZigZag.Runtime.Gameplay`      | `Assets/_Project/Code/Runtime/Gameplay/`          | Core, Data, Events, Input, Utilities            | Todas las features de gameplay viven en sub-namespaces.            |
-| `ZigZag.Runtime.UI`            | `Assets/_Project/Code/Runtime/UI/`                | Core, Data, Events                              | TextMeshPro. **Nunca** referencia Gameplay directamente.           |
-| `ZigZag.Runtime.Audio`         | `Assets/_Project/Code/Runtime/Audio/`             | Data, Events                                    |                                                                    |
-| `ZigZag.Runtime.Utilities`     | `Assets/_Project/Code/Runtime/Utilities/`         | —                                               | Pure C#, helpers, extensions.                                      |
-| `ZigZag.Editor`                | `Assets/_Project/Code/Editor/`                    | Cualquier asmdef de Runtime                     | `includePlatforms: [Editor]`. **Nunca** entra al player build.     |
-| `ZigZag.Tests.EditMode`        | `Assets/_Project/Code/Tests/EditMode/`            | Runtime + `UnityEngine.TestRunner`              | `defineConstraints: [UNITY_INCLUDE_TESTS]`.                        |
-| `ZigZag.Tests.PlayMode`        | `Assets/_Project/Code/Tests/PlayMode/`            | Runtime + `UnityEngine.TestRunner`              | `defineConstraints: [UNITY_INCLUDE_TESTS]`.                        |
+| `ZigZag.Runtime.Core`          | `Assets/Code/Runtime/Core/`                       | Events, Data                                    |                                                                    |
+| `ZigZag.Runtime.Data`          | `Assets/Code/Runtime/Data/`                       | —                                               | Sólo `ScriptableObject` de configuración.                          |
+| `ZigZag.Runtime.Events`        | `Assets/Code/Runtime/Events/`                     | —                                               | `GameEventSO` y variantes tipadas.                                 |
+| `ZigZag.Runtime.Input`         | `Assets/Code/Runtime/Input/`                      | Events                                          |                                                                    |
+| `ZigZag.Runtime.Gameplay`      | `Assets/Code/Runtime/Gameplay/`                   | Core, Data, Events, Input, Utilities            | Todas las features de gameplay viven en sub-namespaces.            |
+| `ZigZag.Runtime.UI`            | `Assets/Code/Runtime/UI/`                         | Core, Data, Events                              | TextMeshPro. **Nunca** referencia Gameplay directamente.           |
+| `ZigZag.Runtime.Audio`         | `Assets/Code/Runtime/Audio/`                      | Data, Events                                    |                                                                    |
+| `ZigZag.Runtime.Utilities`     | `Assets/Code/Runtime/Utilities/`                  | —                                               | Pure C#, helpers, extensions.                                      |
+| `ZigZag.Editor`                | `Assets/Code/Editor/`                             | Cualquier asmdef de Runtime                     | `includePlatforms: [Editor]`. **Nunca** entra al player build.     |
+| `ZigZag.Tests.EditMode`        | `Assets/Code/Tests/EditMode/`                     | Runtime + `UnityEngine.TestRunner`              | `defineConstraints: [UNITY_INCLUDE_TESTS]`.                        |
+| `ZigZag.Tests.PlayMode`        | `Assets/Code/Tests/PlayMode/`                     | Runtime + `UnityEngine.TestRunner`              | `defineConstraints: [UNITY_INCLUDE_TESTS]`.                        |
 
 **Verificación post-setup:** desde cualquier asmdef de Runtime no debe poder hacerse `using ZigZag.Editor.*`. Si Unity compila eso, la asmdef de editor está mal configurada.
 
@@ -248,7 +246,7 @@ public sealed class IntGameEventSO : GameEventSO<int> { }
 
 ### 6.2 Catálogo de eventos
 
-**Globales (assets `SO_*.asset` en `Assets/_Project/Settings/Events/`):**
+**Globales (assets `SO_*.asset` en `Assets/Settings/Events/`):**
 
 | Asset                       | Tipo                | Disparado por                | Suscriptores típicos                              |
 | --------------------------- | ------------------- | ---------------------------- | ------------------------------------------------- |

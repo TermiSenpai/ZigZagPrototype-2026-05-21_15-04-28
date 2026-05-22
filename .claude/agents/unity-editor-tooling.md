@@ -70,8 +70,8 @@ When delivering an editor tool, return:
 ## Tool: <Name>
 
 ### Files
-- Assets/_Project/Code/Editor/<Feature>/<Tool>.cs
-- Assets/_Project/Code/Editor/<Feature>/ZigZag.Editor.<Feature>.asmdef (if new)
+- Assets/Code/Editor/<Feature>/<Tool>.cs
+- Assets/Code/Editor/<Feature>/ZigZag.Editor.<Feature>.asmdef (if new)
 
 ### Menu / trigger
 - Menu: "ZigZag/<Tool Name>"  (or [CustomEditor], or [InitializeOnLoad], etc.)
@@ -89,7 +89,7 @@ When delivering an editor tool, return:
 
 ## Hard NOs
 
-- No editor scripts in `Assets/_Project/Code/Runtime/`.
+- No editor scripts in `Assets/Code/Runtime/`.
 - No `using UnityEditor;` in any runtime file without `#if UNITY_EDITOR`.
 - No editor code that mutates assets without `Undo.RegisterCompleteObjectUndo` (breaks undo).
 - No tool that runs on every script reload unless it actually needs to (`[InitializeOnLoadMethod]` is not free).

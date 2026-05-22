@@ -17,8 +17,8 @@ Read [`CLAUDE.md`](../../CLAUDE.md) §10 (Testing) before writing tests.
 
 | Code under test                                           | Test type   | Folder                                  |
 | --------------------------------------------------------- | ----------- | --------------------------------------- |
-| Pure C# (data, math, state machine, strategy, service with mocked Unity boundary) | **EditMode** | `Assets/_Project/Code/Tests/EditMode/`  |
-| MonoBehaviour lifecycle, physics, coroutines, UI events   | **PlayMode** | `Assets/_Project/Code/Tests/PlayMode/`  |
+| Pure C# (data, math, state machine, strategy, service with mocked Unity boundary) | **EditMode** | `Assets/Code/Tests/EditMode/`  |
+| MonoBehaviour lifecycle, physics, coroutines, UI events   | **PlayMode** | `Assets/Code/Tests/PlayMode/`  |
 
 If the code under test is a MonoBehaviour with logic that could live in plain C#, **say so** and recommend extracting the logic before testing. Don't write a PlayMode test for code that should be EditMode.
 

@@ -294,7 +294,7 @@ Lista explícita para resistir scope creep:
 - [ ] Gemas se recogen y dan puntos.
 - [ ] Powerup imán funciona (sin efectos visuales pulidos aún).
 - [ ] Sin `Instantiate`/`Destroy` en runtime.
-- [ ] Estructura `Assets/_Project/Code/Runtime/...` y asmdefs creados según `zigzag_architecture.md` §4–§5.
+- [ ] Estructura `Assets/Code/Runtime/...` y asmdefs creados según `zigzag_architecture.md` §4–§5.
 - [ ] Código revisable: nombres claros, sin magic numbers, eventos C# bien suscritos/desuscritos.
 
 ### 13.2 Final de Semana 2 (build entregable)
@@ -353,7 +353,7 @@ Para evitar dudas a mitad de sprint:
 - Input con `Input.GetMouseButtonDown(0)` abstraído en `InputHandler`. **No** new Input System.
 - Comunicación entre sistemas: **híbrido** — `GameEventSO` (ScriptableObject Event Channels) para eventos globales + `event Action<T>` C# para eventos locales. **No** UnityEvents, **no** estáticos. Detalle en `zigzag_architecture.md` §6 / ADR-004 / ADR-010.
 - Configuración en `ScriptableObject GameConfigSO` con propiedades read-only (encapsulación obligatoria).
-- Estructura `Assets/_Project/Code/Runtime/...` con una `.asmdef` por carpeta + `ZigZag.Editor` y `ZigZag.Tests.*` aisladas.
+- Estructura `Assets/Code/Runtime/...` con una `.asmdef` por carpeta + `ZigZag.Editor` y `ZigZag.Tests.*` aisladas.
 - Una sola escena (`S_Main.unity`).
 - 1 powerup (imán) incluido en alcance, expuesto vía interfaz `IPowerup` para extensibilidad.
 - Modo infinito (no niveles).
@@ -395,7 +395,7 @@ Si surge tentación de cambiar una de estas, releer esta sección antes de tocar
 
 ## Cómo abrir el proyecto
 - Versión de Unity: 2022.3.62f2
-- Escena principal: Assets/_Project/Scenes/Main.unity
+- Escena principal: Assets/Scenes/Main.unity
 
 ## Cómo jugar
 - Click izquierdo o Space: cambiar dirección

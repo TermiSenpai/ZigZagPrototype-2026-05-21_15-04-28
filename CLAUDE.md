@@ -32,40 +32,36 @@ Project-level guidance for Claude Code and any AI assistant working in this repo
 
 ## 3. Directory Layout
 
-All gameplay assets live under `Assets/_Project/` so they sort to the top and stay separate from third-party content.
+Gameplay assets live directly under `Assets/<Category>/` (no `_Project/` wrapper). The flat layout was chosen for shorter paths and easier navigation; the cost is that ZigZag content mixes alphabetically with any third-party folders that may be imported later — acceptable for this prototype.
 
 ```
 Assets/
-├── _Project/
-│   ├── Art/                # Sprites, models, textures, materials
-│   ├── Audio/              # Clips, mixers
-│   ├── Code/
-│   │   ├── Runtime/        # Runtime scripts (asmdef: ZigZag.Runtime)
-│   │   │   ├── Core/       # Bootstrap, ServiceLocator, GameLoop
-│   │   │   ├── Gameplay/   # Player, world, scoring
-│   │   │   ├── Input/      # Input handling (abstraction over Input System)
-│   │   │   ├── UI/         # HUD, menus
-│   │   │   ├── Audio/      # Audio service
-│   │   │   ├── Data/       # ScriptableObject data containers
-│   │   │   ├── Events/     # ScriptableObject event channels
-│   │   │   └── Utilities/  # Pure helpers, extensions
-│   │   ├── Editor/         # Editor-only (asmdef: ZigZag.Editor, includePlatforms: Editor)
-│   │   └── Tests/
-│   │       ├── EditMode/   # asmdef: ZigZag.Tests.EditMode
-│   │       └── PlayMode/   # asmdef: ZigZag.Tests.PlayMode
-│   ├── Prefabs/
-│   ├── Scenes/
-│   ├── Settings/           # ScriptableObject configs, render assets
-│   └── VFX/
-├── Scenes/                 # Unity default; keep empty or remove SampleScene once _Project/Scenes exists
-└── ...
+├── Art/                    # Sprites, models, textures, materials
+├── Audio/                  # Clips, mixers
+├── Code/
+│   ├── Runtime/            # Runtime scripts
+│   │   ├── Core/           # Bootstrap, GameStateMachine
+│   │   ├── Gameplay/       # Player, world, scoring (with sub-features)
+│   │   ├── Input/          # Input handling (abstraction over UnityEngine.Input)
+│   │   ├── UI/             # HUD, menus
+│   │   ├── Audio/          # Audio service
+│   │   ├── Data/           # ScriptableObject data containers
+│   │   ├── Events/         # ScriptableObject event channels
+│   │   └── Utilities/      # Pure helpers, extensions
+│   ├── Editor/             # Editor-only (asmdef: ZigZag.Editor, includePlatforms: Editor)
+│   └── Tests/
+│       ├── EditMode/       # asmdef: ZigZag.Tests.EditMode
+│       └── PlayMode/       # asmdef: ZigZag.Tests.PlayMode
+├── Prefabs/                # P_Ball, P_PlatformCube, ...
+├── Scenes/                 # S_Main.unity
+├── Settings/               # ScriptableObject configs (SO_GameConfig.asset, SO_*Event.asset)
+└── VFX/
 ```
 
-- Every runtime folder under `Code/` has an **assembly definition (`.asmdef`)**.
+- Every runtime folder under `Code/Runtime/` has an **assembly definition (`.asmdef`)** named `ZigZag.<Layer>.<Feature>` (e.g. `ZigZag.Runtime.Data`).
 - Editor code lives in its own `.asmdef` with `includePlatforms: [Editor]` to keep it out of player builds.
 - Tests live in `.asmdef` files that reference `UnityEngine.TestRunner` and `UnityEditor.TestRunner` and set `defineConstraints: [UNITY_INCLUDE_TESTS]`.
-
-TODO: Create the `_Project` skeleton with .asmdef files on first feature commit.
+- Asmdef **names** remain `ZigZag.<Layer>.<Feature>` regardless of file path — the names define the namespace contract, the paths just organize the files.
 
 ---
 
@@ -168,7 +164,7 @@ Anti-patterns to **reject on sight**: god `GameManager`, `static` mutable state,
 - **PlayMode tests** for MonoBehaviour interactions, physics, coroutines.
 - **No mocks of Unity types** — wrap them behind interfaces and mock the interface.
 - **Arrange-Act-Assert** structure, one logical assertion per test, descriptive test names: `Method_State_ExpectedResult`.
-- Test files mirror the runtime structure under `Assets/_Project/Code/Tests/<EditMode|PlayMode>/`.
+- Test files mirror the runtime structure under `Assets/Code/Tests/<EditMode|PlayMode>/`.
 - TODO: add a CI job (GitHub Actions + `game-ci/unity-test-runner`) once the repo has its first runtime scripts.
 
 ---

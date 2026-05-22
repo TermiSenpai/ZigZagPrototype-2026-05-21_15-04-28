@@ -68,7 +68,7 @@ Group findings by severity. Each finding must cite `file_path:line_number` and p
 ## Review of <branch / files>
 
 ### 🔴 Blockers (must fix before merge)
-- [Assets/_Project/Code/Runtime/Player/PlayerMovement.cs:42](Assets/_Project/Code/Runtime/Player/PlayerMovement.cs#L42) — `public float speed;` violates §5 encapsulation. Fix: `[SerializeField] private float _speed; public float Speed => _speed;`.
+- [Assets/Code/Runtime/Player/PlayerMovement.cs:42](Assets/Code/Runtime/Player/PlayerMovement.cs#L42) — `public float speed;` violates §5 encapsulation. Fix: `[SerializeField] private float _speed; public float Speed => _speed;`.
 
 ### 🟠 Major (fix this PR if possible)
 - ...

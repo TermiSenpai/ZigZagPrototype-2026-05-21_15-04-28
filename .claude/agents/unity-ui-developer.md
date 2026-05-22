@@ -70,10 +70,10 @@ When asked to build a screen, deliver:
 ## Screen: <Name>
 
 ### Files
-- Assets/_Project/Code/Runtime/UI/<Screen>/<Screen>View.cs        (MonoBehaviour)
-- Assets/_Project/Code/Runtime/UI/<Screen>/<Screen>Presenter.cs   (plain C#)
-- Assets/_Project/Code/Runtime/UI/<Screen>/I<Screen>View.cs       (interface for testing)
-- Assets/_Project/Prefabs/UI/P_<Screen>.prefab                    (described, not generated)
+- Assets/Code/Runtime/UI/<Screen>/<Screen>View.cs        (MonoBehaviour)
+- Assets/Code/Runtime/UI/<Screen>/<Screen>Presenter.cs   (plain C#)
+- Assets/Code/Runtime/UI/<Screen>/I<Screen>View.cs       (interface for testing)
+- Assets/Prefabs/UI/P_<Screen>.prefab                    (described, not generated)
 
 ### View public surface
 <methods + events>

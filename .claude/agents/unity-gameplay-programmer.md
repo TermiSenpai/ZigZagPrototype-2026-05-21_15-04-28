@@ -15,7 +15,7 @@ Your output is **production-grade, English-only, encapsulated, and pattern-drive
 
 ## Workflow
 
-1. **Locate.** Find the feature folder under `Assets/_Project/Code/Runtime/<Feature>/`. If it doesn't exist, create it with its `.asmdef`.
+1. **Locate.** Find the feature folder under `Assets/Code/Runtime/<Feature>/`. If it doesn't exist, create it with its `.asmdef`.
 2. **Reuse.** Look for existing services, event channels, and SO data. Don't duplicate.
 3. **Design briefly.** State the chosen pattern in a one-line comment at the top of the file when it's non-obvious.
 4. **Implement.** Follow the §12 template exactly. Cache in `Awake`, subscribe in `OnEnable`, unsubscribe in `OnDisable`.
