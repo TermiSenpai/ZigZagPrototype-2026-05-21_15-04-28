@@ -1,0 +1,97 @@
+using System.Collections.Generic;
+using UnityEngine;
+using ZigZag.Runtime.Data;
+using ZigZag.Runtime.Events;
+using ZigZag.Runtime.Gameplay.World;
+
+namespace ZigZag.Runtime.Gameplay.Collectibles
+{
+    /// <summary>
+    /// Decides whether a freshly finalized segment receives a gem, and places it on
+    /// a randomly chosen cube of that segment. Called by <c>PathGenerator</c> at the
+    /// moment a segment reaches its target length — never on a per-frame basis.
+    /// </summary>
+    /// <remarks>
+    /// Uses its own <see cref="System.Random"/> seeded from
+    /// <see cref="GameConfigSO.GenerationSeed"/>, reset on every <c>_onGameReset</c>
+    /// just like the path generator. Same seed → same gem layout on every Retry,
+    /// independent of (but reproducible alongside) the path layout.
+    /// </remarks>
+    [DisallowMultipleComponent]
+    public sealed class GemSpawner : MonoBehaviour
+    {
+        [Header("Dependencies")]
+        [SerializeField, Tooltip("Source of gem spawn probability, gem value and height offset.")]
+        private GameConfigSO _config;
+
+        [SerializeField, Tooltip("Pool gem instances are taken from.")]
+        private GemPool _pool;
+
+        [Header("Event Channels")]
+        [SerializeField, Tooltip("Listened-to: reseeds the placement RNG so each run is reproducible from the seed.")]
+        private GameEventSO _onGameReset;
+
+        private System.Random _random;
+
+        private void Awake()
+        {
+            Debug.Assert(_config != null, $"{nameof(GemSpawner)} requires a {nameof(GameConfigSO)} reference.", this);
+            Debug.Assert(_pool != null, $"{nameof(GemSpawner)} requires a {nameof(GemPool)} reference.", this);
+            Debug.Assert(_onGameReset != null, $"{nameof(GemSpawner)} requires {nameof(_onGameReset)}.", this);
+
+            if (_config != null) _random = CreateRandom();
+        }
+
+        private void OnEnable()
+        {
+            if (_onGameReset != null) _onGameReset.Register(HandleGameReset);
+        }
+
+        private void OnDisable()
+        {
+            if (_onGameReset != null) _onGameReset.Unregister(HandleGameReset);
+        }
+
+        /// <summary>
+        /// Rolls against <see cref="GameConfigSO.GemSpawnProbability"/> and, if it
+        /// passes, places one gem on a uniformly random cube of <paramref name="segment"/>.
+        /// Safe to call with a null or empty segment — does nothing in that case.
+        /// </summary>
+        public void TryPopulateSegment(Segment segment)
+        {
+            if (segment == null || segment.CubeCount == 0) return;
+            if (_config == null || _pool == null || _random == null) return;
+
+            if (_random.NextDouble() >= _config.GemSpawnProbability) return;
+
+            int cubeIndex = _random.Next(0, segment.CubeCount);
+            IReadOnlyList<GameObject> cubes = segment.Cubes;
+            GameObject cube = cubes[cubeIndex];
+            if (cube == null) return;
+
+            GameObject gemGo = _pool.Get();
+            if (gemGo == null) return;
+
+            Vector3 position = cube.transform.position + Vector3.up * _config.GemHeightAboveCubeCenter;
+            gemGo.transform.SetPositionAndRotation(position, Quaternion.identity);
+
+            Gem gem = gemGo.GetComponent<Gem>();
+            if (gem != null) gem.Initialize(_config.GemValue, _pool);
+        }
+
+        private void HandleGameReset()
+        {
+            if (_config != null) _random = CreateRandom();
+        }
+
+        private System.Random CreateRandom()
+        {
+            // Matches PathGenerator's sentinel: 0 = fresh seed each run via TickCount,
+            // anything else = deterministic. Same int → reproducible gem layout. The
+            // RNG instance is independent of PathGenerator's, so the two systems do
+            // not consume each other's random sequence.
+            int seed = _config.GenerationSeed != 0 ? _config.GenerationSeed : System.Environment.TickCount;
+            return new System.Random(seed);
+        }
+    }
+}
