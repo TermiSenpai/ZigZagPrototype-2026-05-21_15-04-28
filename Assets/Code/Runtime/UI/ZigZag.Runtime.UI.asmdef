@@ -1,0 +1,16 @@
+{
+    "name": "ZigZag.Runtime.UI",
+    "rootNamespace": "ZigZag.Runtime.UI",
+    "references": [
+        "ZigZag.Runtime.Events"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
