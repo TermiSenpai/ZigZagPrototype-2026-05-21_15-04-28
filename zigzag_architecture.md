@@ -477,7 +477,7 @@ namespace ZigZag.Runtime.Gameplay.Player
 }
 ```
 
-**Direcciones internas:** `(Vector3.right + Vector3.forward).normalized` y `(Vector3.left + Vector3.forward).normalized`.
+**Direcciones internas:** `new Vector3(-1f, 0f, 0f)` (puro -X) y `new Vector3(0f, 0f, 1f)` (puro +Z). Los nombres internos `AlongNegativeX` y `AlongPositiveZ` reflejan el eje mundo, no la apariencia en pantalla. La ilusión de zigzag 45° la produce la cámara isométrica (rotación -45° Y) que proyecta ambos ejes como diagonales en pantalla — mismo truco que el ZigZag original de Ketchapp. El path se construye con cubos alineados a los ejes (giros de 90° en world space).
 
 ### 7.5 `PathGenerator` (`ZigZag.Runtime.Gameplay.World`)
 

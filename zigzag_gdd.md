@@ -71,7 +71,7 @@ Estos pilares son la vara de medir para cualquier decisión. Si una feature no r
 
 - Plano **XZ** (altura Y fija salvo al caer).
 - Velocidad **constante** dentro de un frame, acelera con el tiempo.
-- Dirección actual ∈ `{ (1, 0, 1), (-1, 0, 1) }` normalizadas (45° dentro del plano XZ).
+- Dirección actual ∈ `{ (-1, 0, 0), (0, 0, 1) }` — ejes mundo puros, no diagonales 45°. La cámara isométrica rotada -45° Y proyecta esos ejes mundo como diagonales en pantalla, reproduciendo el visual zigzag del original Ketchapp. El path se construye con cubos alineados a los ejes mundo (giros de 90° en world space).
 - **Bola cinemática:** sin Rigidbody con gravedad real. Justificación detallada en el documento de arquitectura.
 - Caída simulada por código (`fallSpeed` propio) cuando ya no hay suelo.
 

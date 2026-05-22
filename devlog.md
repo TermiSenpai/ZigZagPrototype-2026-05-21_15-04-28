@@ -98,3 +98,91 @@ Actualizado en consecuencia:
 - Marcado con `// TODO:` para borrarlo cuando aparezca `GameStateMachine` en la iteración 2.
 
 Setup mínimo en escena para verlo funcionar (mismo cubo+sphere del setup descrito arriba): añadir un GameObject `_Bootstrap` con `BallAutoStarter`, arrastrar el `BallController` a su slot. Play → la bola debería arrancar.
+
+---
+
+## 2026-05-22 — Iteración 2: cerrar el loop (Menu → Playing → GameOver → Retry)
+
+### Objetivo
+
+Cerrar el ciclo de partida. Con loop cerrado, iteraciones posteriores (generación procedural, gemas, powerup) se prueban sin Stop/Play; sin él, todas las features siguientes se testean a ciegas.
+
+### Lo que se ha implementado
+
+1. **Capa Events** — nuevo asmdef `ZigZag.Runtime.Events` (sin refs).
+   - `GameEventSO` (parameterless) y `GameEventSO<T>` (abstract) en el mismo fichero — son partners conceptuales.
+   - `IntGameEventSO : GameEventSO<int>` en fichero separado (lista para iteración 4 cuando aparezca `_onScoreChanged`).
+
+2. **Capa Core** — nuevo asmdef `ZigZag.Runtime.Core` (refs: Events, Data, Input, Gameplay).
+   - `enum GameState { Menu, Playing, GameOver }`.
+   - `GameStateMachine` `MonoBehaviour sealed`:
+     - **Rutea el tap** según estado: en Menu → `StartGame`; en Playing → `_ball.FlipDirection()`; en GameOver → ignora (sólo botón Retry).
+     - Escucha `BallController.OnFell` (evento C# local) y transiciona a GameOver.
+     - Escucha `SO_OnRetryRequested` (canal SO) y dispara la secuencia de retry.
+     - Raises: `SO_OnGameStarted`, `SO_OnGameOver`, `SO_OnGameReset`.
+   - Decisión: **`GameBootstrap` se difiere a iteración 3** — sin pools que inicializar y sin service locator, no aporta nada. Cada actor valida sus refs con `Debug.Assert` en su propio `Awake`.
+
+3. **Capa UI** — nuevo asmdef `ZigZag.Runtime.UI` (ref: sólo Events).
+   - `UIController` `MonoBehaviour sealed`:
+     - Tres `GameObject` panels (`_menuPanel`, `_hudPanel`, `_gameOverPanel`), se hacen `SetActive` según el evento que llega.
+     - `OnRetryButtonClicked()` se invoca desde el `onClick` del botón Retry (configurado por inspector) y `Raise()` el canal `SO_OnRetryRequested`.
+   - El UI **no** referencia Core ni Gameplay. La única comunicación con Core es por canal SO.
+
+4. **Refactor de `BallController`** — eliminada la suscripción directa a `InputHandler.OnTapped`. Ahora expone `public void FlipDirection()` y es la state machine quien la llama cuando estado == Playing.
+   - **Por qué:** si la bola y el state machine se suscribieran ambos al mismo `OnTapped`, el primer tap en Menu podría a la vez iniciar la partida **y** voltear la dirección (race según orden de suscripción). Centralizar el routing en la state machine elimina la ambigüedad.
+   - Consecuencia: el asmdef `ZigZag.Runtime.Gameplay` ya no referencia `Input`.
+
+5. **`BallAutoStarter` eliminado** (script + meta + componente en escena + campo orphan `_inputHandler` en BallController). El TODO de iteración 1 se cumple aquí.
+
+### Pendiente — setup manual en Unity
+
+El código compila independiente, pero la escena necesita estos pasos en el editor antes de que el loop sea jugable. Todos son mecánicos.
+
+#### A. Crear los 4 ScriptableObject de eventos en `Assets/Settings/Events/`
+
+`Right-click → Create → ZigZag → Events → Game Event`, renombrar:
+- `SO_OnGameStarted.asset`
+- `SO_OnGameOver.asset`
+- `SO_OnGameReset.asset`
+- `SO_OnRetryRequested.asset`
+
+#### B. En la escena `SampleScene.unity`
+
+1. **GameObject `GameStateMachine`** (root vacío):
+   - Añadir componente `GameStateMachine`.
+   - Slots: arrastrar `InputHandler` (el del GameObject Player) → `_inputHandler`; `BallController` (también del Player) → `_ball`; (ver paso 3) `BallSpawn` → `_ballSpawnPoint`; los 4 SO de eventos a sus respectivos slots.
+
+2. **GameObject `BallSpawn`** (root vacío):
+   - Posición igual al spawn deseado de la bola — ahora mismo `(0, 0, 0)` para que coincida con la posición del Player en la escena actual.
+   - Sirve como marker de spawn; lo arrastras al slot `_ballSpawnPoint` del state machine.
+
+3. **Canvas + paneles UI**:
+   - `Right-click en jerarquía → UI → Canvas` (crea Canvas + EventSystem automáticamente).
+   - Bajo el Canvas, crear tres GameObjects vacíos (con `RectTransform`): `MenuPanel`, `HUDPanel`, `GameOverPanel`. Cada uno ocupa el Canvas entero (anchor stretch).
+   - Dentro de cada panel, añadir TextMeshPro UI (`UI → Text - TextMeshPro`):
+     - `MenuPanel` → `Text: "ZIGZAG"` grande + `Text: "Click to play"` mediano.
+     - `HUDPanel` → `Text: "Score: 0"` esquina superior izquierda. (Placeholder hasta iteración 4 cuando exista `ScoreManager`.)
+     - `GameOverPanel` → `Text: "GAME OVER"` grande + `Text: "Score: 0"` + `Button` con label `"RETRY"`.
+   - Crear GameObject root `UIController` con el componente `UIController`. Slots: arrastrar los tres paneles + los 4 SO de eventos.
+   - **Wire del botón Retry:** seleccionar el botón → componente `Button` → `OnClick()` → `+` → arrastrar el GameObject `UIController` → seleccionar función `UIController.OnRetryButtonClicked`.
+
+4. **Path provisional**:
+   - Eliminar (o desactivar) el `Cube` actual grande de `(scale 5,5,5)`.
+   - Crear ~12 cubos escalados a `(1, 0.3, 1)` colocados a mano formando un zigzag siguiendo las dos diagonales `(1,0,1).normalized` y `(-1,0,1).normalized`. El primer cubo en `(0, 0, 0)`; cada cubo siguiente desplazado `~0.707` en X y Z respecto al anterior, alternando signo de X cada N cubos (3–8).
+   - Layer `Default` (la `GroundLayerMask` por defecto es `~0`, así sirve).
+   - Agruparlos como hijos de un GameObject vacío `Path_Provisional` para tenerlos ordenados.
+   - **TODO:** `Path_Provisional` desaparece en iteración 3 cuando exista `PathGenerator`.
+
+#### C. Verificación
+
+Play → debería aparecer el menú. Click → bola se mueve. Click durante movimiento → flip. Bola cae fuera del path → panel GameOver. Botón Retry → bola al spawn + partida nueva sin Stop/Play.
+
+### Próxima iteración (planteamiento)
+
+3. `PathGenerator` + `PlatformPool` (`UnityEngine.Pool.ObjectPool<T>`). Reemplaza `Path_Provisional` por generación con seed. Reaparece `GameBootstrap` para inicializar el pool.
+
+### Addendum tras playtest
+
+- **Retry vuelve a Menu, no autostart.** El plan original iba directo a Playing tras Retry; en playtest se siente brusco y rompe el ritmo. Ahora `HandleRetryRequested` deja el estado en `Menu` y `UIController.HandleGameReset` muestra el panel del menú. Hace falta un tap adicional para arrancar de nuevo, consistente con el primer arranque.
+- **Diagonal inicial cambiada a `(-1, 0, 1)`** (antes `(1, 0, 1)`). El path provisional se construyó en dirección `-X, +Z`, así que la bola tiene que arrancar por esa diagonal para subir por el camino y no salirse al primer paso. Ajustado en `BallController.Awake` y `ResetTo`; el bool `_isOnLeftDiagonal` arranca en `true` para que `FlipDirection` siga siendo simétrico.
+- **Pivote del modelo de dirección: ejes mundo puros, no diagonales 45°.** Segundo playtest revela que las "diagonales 45°" `(±1, 0, 1)` proyectadas por la cámara isométrica (-45° Y) salen del path porque éste se construyó con cubos alineados a los ejes mundo (estilo Ketchapp original). Las direcciones ahora son `AlongNegativeX = (-1, 0, 0)` y `AlongPositiveZ = (0, 0, 1)`. Con la cámara rotada, ambos ejes mundo aparecen como diagonales en pantalla — mismo visual, geometría correcta. El bool interno se renombra `_isOnXAxis`. GDD §5.1 y arquitectura §7.4 actualizados.
