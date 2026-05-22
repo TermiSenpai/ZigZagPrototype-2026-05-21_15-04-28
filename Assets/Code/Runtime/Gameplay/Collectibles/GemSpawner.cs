@@ -33,6 +33,10 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
 
         private System.Random _random;
 
+        // TODO: prune collected gems from this list during play if endurance runs
+        // become a thing — today it only resets between runs.
+        private readonly List<GameObject> _activeGems = new List<GameObject>(32);
+
         private void Awake()
         {
             Debug.Assert(_config != null, $"{nameof(GemSpawner)} requires a {nameof(GameConfigSO)} reference.", this);
@@ -77,10 +81,20 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
 
             Gem gem = gemGo.GetComponent<Gem>();
             if (gem != null) gem.Initialize(_config.GemValue, _pool);
+            _activeGems.Add(gemGo);
         }
 
         private void HandleGameReset()
         {
+            for (int i = 0; i < _activeGems.Count; i++)
+            {
+                GameObject g = _activeGems[i];
+                // Skip collected gems — they were already released by Gem.OnTriggerEnter
+                // and the pool deactivates released instances, so activeSelf is false.
+                if (g != null && g.activeSelf) _pool.Release(g);
+            }
+            _activeGems.Clear();
+
             if (_config != null) _random = CreateRandom();
         }
 

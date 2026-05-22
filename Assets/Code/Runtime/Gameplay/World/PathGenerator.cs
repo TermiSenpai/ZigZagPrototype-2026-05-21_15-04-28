@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using ZigZag.Runtime.Data;
 using ZigZag.Runtime.Events;
+using ZigZag.Runtime.Gameplay.Collectibles;
 
 namespace ZigZag.Runtime.Gameplay.World
 {
@@ -37,6 +38,9 @@ namespace ZigZag.Runtime.Gameplay.World
 
         [SerializeField, Tooltip("Transform of the ball; the generator measures ahead/behind distances relative to this.")]
         private Transform _ballTransform;
+
+        [SerializeField, Tooltip("Optional. If wired, finalized segments are offered to this spawner for gem placement.")]
+        private GemSpawner _gemSpawner;
 
         [Header("Event Channels")]
         [SerializeField, Tooltip("Resumes generation when the run starts.")]
@@ -185,6 +189,9 @@ namespace ZigZag.Runtime.Gameplay.World
 
             if (_currentSegment.CubeCount >= _currentSegmentTargetLength)
             {
+                // Hand the just-finalized segment to the gem spawner before reassigning.
+                if (_gemSpawner != null) _gemSpawner.TryPopulateSegment(_currentSegment);
+
                 FlipDirection();
                 StartNewSegment(isFirstSegment: false);
                 return;
