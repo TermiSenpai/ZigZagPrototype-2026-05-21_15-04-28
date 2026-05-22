@@ -17,18 +17,18 @@ Primer script jugable: la bola se mueve sola en diagonal sobre un plano XZ y cam
 
 ### Lo que se ha implementado
 
-1. **Estructura de carpetas** bajo `Assets/_Project/` con tres `.asmdef` (mínimas necesarias):
+1. **Estructura de carpetas** bajo `Assets/` con tres `.asmdef` (mínimas necesarias):
    - `ZigZag.Runtime.Data` (sin referencias)
    - `ZigZag.Runtime.Input` (sin referencias)
    - `ZigZag.Runtime.Gameplay` (referencia Data e Input)
 
-2. **`GameConfigSO`** (`Assets/_Project/Code/Runtime/Data/GameConfigSO.cs`)
+2. **`GameConfigSO`** (`Assets/Code/Runtime/Data/GameConfigSO.cs`)
    Solo el subset de campos relevantes para movimiento ahora — `_initialSpeed`, `_acceleration`, `_maxSpeed`, `_fallSpeed`, `_fallThreshold`, `_groundCheckDistance`, `_groundLayerMask`. Patrón obligatorio: `[SerializeField] private` + propiedad `get`-only. `OnValidate` clampa valores negativos.
 
-3. **`InputHandler`** (`Assets/_Project/Code/Runtime/Input/InputHandler.cs`)
+3. **`InputHandler`** (`Assets/Code/Runtime/Input/InputHandler.cs`)
    Capa fina sobre `UnityEngine.Input`. Expone un único `event Action OnTapped`. Dispara con click izquierdo, primer touch (móvil) o `Space`. Alias `using UnityInput = UnityEngine.Input;` para evitar colisión con el namespace propio `ZigZag.Runtime.Input`.
 
-4. **`BallController`** (`Assets/_Project/Code/Runtime/Gameplay/Player/BallController.cs`)
+4. **`BallController`** (`Assets/Code/Runtime/Gameplay/Player/BallController.cs`)
    Núcleo de la mecánica:
    - Dos direcciones precalculadas como `static readonly Vector3`: `(1,0,1).normalized` y `(-1,0,1).normalized`.
    - `Update` aplica `transform.position += direction * speed * dt` mientras esté `grounded`. Acelera hasta `maxSpeed`.
@@ -49,8 +49,8 @@ Primer script jugable: la bola se mueve sola en diagonal sobre un plano XZ y cam
 
 ### Pendiente — setup manual en Unity (no se puede via texto)
 
-1. Crear escena `S_Main.unity` en `Assets/_Project/Scenes/` (o renombrar/reusar `SampleScene`).
-2. Crear asset `SO_GameConfig.asset` en `Assets/_Project/Settings/` (menú `Create → ZigZag → Game Config`).
+1. Crear escena `S_Main.unity` en `Assets/Scenes/` (o renombrar/reusar `SampleScene`).
+2. Crear asset `SO_GameConfig.asset` en `Assets/Settings/` (menú `Create → ZigZag → Game Config`).
 3. En la escena:
    - **Ground provisional**: Cube primitivo, scale `(30, 0.3, 30)`, posición `(0, 0, 0)`.
    - **Ball**: Sphere primitivo, posición `(0, 0.65, 0)`. Añadir componente `BallController`, arrastrar `SO_GameConfig` y el GameObject del `InputHandler` a sus slots.
@@ -71,3 +71,30 @@ Primer script jugable: la bola se mueve sola en diagonal sobre un plano XZ y cam
 4. Path provisional con cubos colocados a mano (todavía sin generación procedural).
 
 Generación procedural y pooling se atacarán en la iteración 3 (`PathGenerator` + `PlatformPool`), siguiendo el orden del roadmap del GDD §14.
+
+---
+
+## 2026-05-22 — Addendum a iteración 1
+
+### Cambio de layout: se elimina el prefijo `_Project/`
+
+Decisión revisada tras ver el árbol creado: el código vive ahora directamente bajo `Assets/Code/Runtime/<Layer>/<Feature>/`, sin el wrapper `_Project/`. Misma decisión para `Assets/Settings/` y `Assets/Scenes/`.
+
+- **Pros:** paths más cortos, menos anidamiento, navegación más simple en el Project window.
+- **Cons asumidos:** ZigZag content se mezcla alfabéticamente con cualquier paquete third-party que se importe a `Assets/` en el futuro. Para un prototipo de 2 semanas sin packages externos esperados (brief: sin Asset Store, sin plugins) es coste cero.
+
+Actualizado en consecuencia:
+- `CLAUDE.md` §3 (árbol de carpetas + justificación).
+- `zigzag_architecture.md` §4 (árbol) y §5 (tabla de paths de asmdef).
+- `zigzag_gdd.md` (referencias en §13 criterios de éxito, §15 decisiones cerradas, §17 README).
+- Cinco prompts de subagentes en `.claude/agents/` (paths en plantillas de salida).
+- **Pendiente manual:** `.claude/agents/AGENTS.md` y `.claude/agents/unity-architect.md` — el auto-mode classifier de Claude Code bloquea editar agent prompts. Tienes que cambiar las cuatro referencias a `Assets/_Project/` por `Assets/` a mano (3 líneas en total). Es mecánico.
+
+### Script provisional para testear el movimiento
+
+`Assets/Code/Runtime/Gameplay/Player/BallAutoStarter.cs`:
+- En `Start` llama `_ball.StartMoving()`.
+- Se suscribe a `OnDirectionChanged` y `OnFell` y los loguea (toggleable con `_verbose`) para depurar el primer playtest sin tener que enchufar todavía la cámara, la UI o la state machine.
+- Marcado con `// TODO:` para borrarlo cuando aparezca `GameStateMachine` en la iteración 2.
+
+Setup mínimo en escena para verlo funcionar (mismo cubo+sphere del setup descrito arriba): añadir un GameObject `_Bootstrap` con `BallAutoStarter`, arrastrar el `BallController` a su slot. Play → la bola debería arrancar.
