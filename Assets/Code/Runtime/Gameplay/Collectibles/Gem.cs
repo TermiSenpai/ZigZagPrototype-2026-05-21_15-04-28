@@ -37,6 +37,12 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
         private void Awake()
         {
             Debug.Assert(_onGemCollected != null, $"{nameof(Gem)} requires {nameof(_onGemCollected)}.", this);
+            if (_onGemCollected == null)
+            {
+                Debug.LogError($"{nameof(Gem)} requires {nameof(_onGemCollected)}; disabling component.", this);
+                enabled = false;
+                return;
+            }
 
             Rigidbody rb = GetComponent<Rigidbody>();
             rb.isKinematic = true;
@@ -65,7 +71,15 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
             _collected = true;
             _onGemCollected.Raise(Value);
 
-            if (_owningPool != null) _owningPool.Release(gameObject);
+            if (_owningPool != null)
+            {
+                _owningPool.Release(gameObject);
+            }
+            else
+            {
+                Debug.LogError($"{nameof(Gem)} collected without an owning pool; deactivating to avoid a zombie instance. Did GemSpawner forget to call Initialize?", this);
+                gameObject.SetActive(false);
+            }
         }
     }
 }
