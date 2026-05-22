@@ -64,9 +64,26 @@ namespace ZigZag.Runtime.Data
         [SerializeField, Tooltip("Generation seed. 0 = different seed every run (uses Environment.TickCount); any other value = deterministic, same path every Retry. Use a non-zero value when bug-hunting a specific run.")]
         private int _generationSeed = 0;
 
+        [Header("Gems")]
+        [SerializeField, Range(0f, 1f), Tooltip("Probability per finalized segment that a gem is placed on one of its cubes.")]
+        private float _gemSpawnProbability = 0.3f;
+
+        [SerializeField, Tooltip("Points awarded for each gem collected.")]
+        private int _gemValue = 10;
+
+        [SerializeField, Tooltip("Vertical offset above a cube's center where a gem sits. Pick a value clear of both the cube top and the ball radius so collection is reliable.")]
+        private float _gemHeightAboveCubeCenter = 3.2f;
+
+        [Header("Score")]
+        [SerializeField, Tooltip("Points per unit of forward progress (measured along the global forward axis, -X+Z diagonal).")]
+        private int _distanceMultiplier = 1;
+
         [Header("Pooling")]
         [SerializeField, Tooltip("Number of platform cubes the pool prewarms on Awake. The pool grows up to twice this value if pressure spikes.")]
         private int _platformPoolInitialSize = 50;
+
+        [SerializeField, Tooltip("Number of gem instances the gem pool prewarms on Awake.")]
+        private int _gemPoolInitialSize = 20;
 
         public float InitialSpeed => _initialSpeed;
         public float Acceleration => _acceleration;
@@ -84,6 +101,11 @@ namespace ZigZag.Runtime.Data
         public float BehindBuffer => _behindBuffer;
         public int GenerationSeed => _generationSeed;
         public int PlatformPoolInitialSize => _platformPoolInitialSize;
+        public float GemSpawnProbability => _gemSpawnProbability;
+        public int GemValue => _gemValue;
+        public float GemHeightAboveCubeCenter => _gemHeightAboveCubeCenter;
+        public int DistanceMultiplier => _distanceMultiplier;
+        public int GemPoolInitialSize => _gemPoolInitialSize;
 
 #if UNITY_EDITOR
         private void OnValidate()
@@ -102,6 +124,10 @@ namespace ZigZag.Runtime.Data
             if (_cubeSize.x <= 0f) _cubeSize.x = 0.01f;
             if (_cubeSize.y <= 0f) _cubeSize.y = 0.01f;
             if (_cubeSize.z <= 0f) _cubeSize.z = 0.01f;
+            if (_gemValue < 0) _gemValue = 0;
+            if (_distanceMultiplier < 0) _distanceMultiplier = 0;
+            if (_gemPoolInitialSize < 1) _gemPoolInitialSize = 1;
+            if (_gemHeightAboveCubeCenter < 0f) _gemHeightAboveCubeCenter = 0f;
         }
 #endif
     }
