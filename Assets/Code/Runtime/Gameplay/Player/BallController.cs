@@ -1,19 +1,31 @@
 using System;
 using UnityEngine;
 using ZigZag.Runtime.Data;
-using ZigZag.Runtime.Input;
 
 namespace ZigZag.Runtime.Gameplay.Player
 {
     /// <summary>
     /// Drives the ball along the path: constant-speed forward motion on one of two
-    /// 45° diagonals in the XZ plane, instant direction flip on tap, downward
-    /// raycast ground probe, and a self-simulated fall when there is no ground left.
+    /// world-axis directions in the XZ plane, instant direction flip on demand,
+    /// downward raycast ground probe, and a self-simulated fall when there is no
+    /// ground left.
     /// </summary>
     /// <remarks>
     /// ADR-001 in <c>zigzag_architecture.md</c> mandates a kinematic ball: no
     /// Rigidbody, no PhysX integration. Movement is applied directly to
     /// <see cref="Transform.position"/>; the fall is a hand-rolled downward velocity.
+    ///
+    /// Direction model matches the original Ketchapp ZigZag: the path is laid out
+    /// along world X and Z axes (cubes form 90° turns in world space), and the ball
+    /// alternates between pure -X and pure +Z motion. Combined with the -45° Y
+    /// camera rotation, this is what produces the iconic "diagonal zigzag" visual
+    /// on screen even though world-space motion is axis-aligned.
+    ///
+    /// Lifecycle control is external: the ball does not listen to input. The
+    /// <see cref="GameStateMachine"/> calls <see cref="StartMoving"/>, <see cref="StopMoving"/>,
+    /// <see cref="ResetTo"/> and <see cref="FlipDirection"/> based on game state, which
+    /// keeps a single source of truth for "may I move now?" and removes the risk
+    /// of the same tap both starting the run and flipping the direction.
     /// </remarks>
     [DisallowMultipleComponent]
     public sealed class BallController : MonoBehaviour
@@ -21,9 +33,6 @@ namespace ZigZag.Runtime.Gameplay.Player
         [Header("Dependencies")]
         [SerializeField, Tooltip("Tunable values for speed, acceleration, fall and ground check.")]
         private GameConfigSO _config;
-
-        [SerializeField, Tooltip("Source of the single tap action that flips direction.")]
-        private InputHandler _inputHandler;
 
         public event Action<Vector3> OnDirectionChanged;
         public event Action OnFell;
@@ -33,36 +42,20 @@ namespace ZigZag.Runtime.Gameplay.Player
         public bool IsMoving { get; private set; }
         public bool IsGrounded { get; private set; }
 
-        private static readonly Vector3 RightDiagonal = new Vector3(1f, 0f, 1f).normalized;
-        private static readonly Vector3 LeftDiagonal = new Vector3(-1f, 0f, 1f).normalized;
+        private static readonly Vector3 AlongNegativeX = new Vector3(-1f, 0f, 0f);
+        private static readonly Vector3 AlongPositiveZ = new Vector3(0f, 0f, 1f);
 
-        private bool _isOnLeftDiagonal;
+        private bool _isOnXAxis;
         private bool _hasFallen;
 
         private void Awake()
         {
             Debug.Assert(_config != null, $"{nameof(BallController)} requires a {nameof(GameConfigSO)} reference.", this);
-            Debug.Assert(_inputHandler != null, $"{nameof(BallController)} requires an {nameof(InputHandler)} reference.", this);
 
-            CurrentDirection = RightDiagonal;
+            CurrentDirection = AlongNegativeX;
+            _isOnXAxis = true;
             CurrentSpeed = _config != null ? _config.InitialSpeed : 0f;
             IsGrounded = true;
-        }
-
-        private void OnEnable()
-        {
-            if (_inputHandler != null)
-            {
-                _inputHandler.OnTapped += HandleTapped;
-            }
-        }
-
-        private void OnDisable()
-        {
-            if (_inputHandler != null)
-            {
-                _inputHandler.OnTapped -= HandleTapped;
-            }
         }
 
         private void Update()
@@ -111,20 +104,25 @@ namespace ZigZag.Runtime.Gameplay.Player
         public void ResetTo(Vector3 position)
         {
             transform.position = position;
-            CurrentDirection = RightDiagonal;
+            CurrentDirection = AlongNegativeX;
             CurrentSpeed = _config != null ? _config.InitialSpeed : 0f;
             IsMoving = false;
             IsGrounded = true;
-            _isOnLeftDiagonal = false;
+            _isOnXAxis = true;
             _hasFallen = false;
         }
 
-        private void HandleTapped()
+        /// <summary>
+        /// Swaps the ball's axis. No-op when not moving or while falling — both
+        /// guards match the original game's behavior, where input is locked once
+        /// the ball has left the path.
+        /// </summary>
+        public void FlipDirection()
         {
             if (!IsMoving || !IsGrounded) return;
 
-            _isOnLeftDiagonal = !_isOnLeftDiagonal;
-            CurrentDirection = _isOnLeftDiagonal ? LeftDiagonal : RightDiagonal;
+            _isOnXAxis = !_isOnXAxis;
+            CurrentDirection = _isOnXAxis ? AlongNegativeX : AlongPositiveZ;
             OnDirectionChanged?.Invoke(CurrentDirection);
         }
 

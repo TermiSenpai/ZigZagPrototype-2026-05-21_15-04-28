@@ -2,8 +2,7 @@
     "name": "ZigZag.Runtime.Gameplay",
     "rootNamespace": "ZigZag.Runtime.Gameplay",
     "references": [
-        "ZigZag.Runtime.Data",
-        "ZigZag.Runtime.Input"
+        "ZigZag.Runtime.Data"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
