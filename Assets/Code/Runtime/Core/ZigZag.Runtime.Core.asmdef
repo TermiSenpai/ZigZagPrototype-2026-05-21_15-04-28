@@ -1,0 +1,19 @@
+{
+    "name": "ZigZag.Runtime.Core",
+    "rootNamespace": "ZigZag.Runtime.Core",
+    "references": [
+        "ZigZag.Runtime.Events",
+        "ZigZag.Runtime.Data",
+        "ZigZag.Runtime.Input",
+        "ZigZag.Runtime.Gameplay"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
