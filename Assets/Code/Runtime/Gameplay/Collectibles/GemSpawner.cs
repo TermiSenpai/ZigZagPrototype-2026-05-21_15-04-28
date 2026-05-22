@@ -84,6 +84,45 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
             _activeGems.Add(gemGo);
         }
 
+        /// <summary>
+        /// Releases any active gem whose projected position along <paramref name="globalForward"/>
+        /// is more than <paramref name="behindBuffer"/> units behind <paramref name="ballPosition"/>.
+        /// Called by <c>PathGenerator</c> after recycling cubes, so orphan gems on
+        /// pool-released cubes return to the pool instead of floating off-screen.
+        /// </summary>
+        /// <remarks>
+        /// The loop walks <see cref="_activeGems"/> back-to-front so swap-removal stays
+        /// O(1) per release. <c>_pool.Release</c> deactivates the gem; the
+        /// <see cref="HandleGameReset"/> filter on <c>activeSelf</c> still works for
+        /// the surviving entries because they remain active.
+        /// </remarks>
+        public void ReleaseGemsBehind(Vector3 ballPosition, Vector3 globalForward, float behindBuffer)
+        {
+            if (_pool == null) return;
+
+            for (int i = _activeGems.Count - 1; i >= 0; i--)
+            {
+                GameObject g = _activeGems[i];
+                if (g == null)
+                {
+                    _activeGems.RemoveAt(i);
+                    continue;
+                }
+                if (!g.activeSelf)
+                {
+                    // Already collected (Gem.OnTriggerEnter released it). Prune.
+                    _activeGems.RemoveAt(i);
+                    continue;
+                }
+
+                float behindDistance = -Vector3.Dot(g.transform.position - ballPosition, globalForward);
+                if (behindDistance <= behindBuffer) continue;
+
+                _pool.Release(g);
+                _activeGems.RemoveAt(i);
+            }
+        }
+
         private void HandleGameReset()
         {
             for (int i = 0; i < _activeGems.Count; i++)

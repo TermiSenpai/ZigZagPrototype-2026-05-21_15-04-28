@@ -177,6 +177,14 @@ namespace ZigZag.Runtime.Gameplay.World
                 _segments.Dequeue();
                 ReleaseSegmentCubes(oldest);
             }
+
+            // Sweep any gems left behind by recycled cubes back to the pool. Done here
+            // (not inside the segment loop) so we run the gem check at most once per
+            // frame regardless of how many segments were dequeued.
+            if (_gemSpawner != null)
+            {
+                _gemSpawner.ReleaseGemsBehind(_ballTransform.position, GlobalForward, _config.BehindBuffer);
+            }
         }
 
         private void SpawnNextCubeOrStartNewSegment()
