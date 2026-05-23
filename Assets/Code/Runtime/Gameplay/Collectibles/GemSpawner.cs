@@ -76,8 +76,9 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
             GameObject gemGo = _pool.Get();
             if (gemGo == null) return;
 
-            Vector3 position = cube.transform.position + Vector3.up * _config.GemHeightAboveCubeCenter;
-            gemGo.transform.SetPositionAndRotation(position, Quaternion.identity);
+            // Position only — preserve the prefab's rotation (octahedron look comes from
+            // the prefab's (45, 0, 45) Euler angles, which the pool round-trips intact).
+            gemGo.transform.position = cube.transform.position + Vector3.up * _config.GemHeightAboveCubeCenter;
 
             Gem gem = gemGo.GetComponent<Gem>();
             if (gem != null) gem.Initialize(_config.GemValue, _pool);
