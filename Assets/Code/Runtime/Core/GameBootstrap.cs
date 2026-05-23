@@ -1,5 +1,6 @@
 using UnityEngine;
 using ZigZag.Runtime.Gameplay.Collectibles;
+using ZigZag.Runtime.Gameplay.Economy;
 using ZigZag.Runtime.Gameplay.Scoring;
 using ZigZag.Runtime.Gameplay.World;
 
@@ -39,6 +40,9 @@ namespace ZigZag.Runtime.Core
         [SerializeField, Tooltip("Scene's gem spawner.")]
         private GemSpawner _gemSpawner;
 
+        [SerializeField, Tooltip("Scene's coins wallet.")]
+        private CoinsWallet _coinsWallet;
+
         private void Awake()
         {
             Debug.Assert(_platformPool != null, $"{nameof(GameBootstrap)} requires a {nameof(PlatformPool)} reference.", this);
@@ -47,6 +51,7 @@ namespace ZigZag.Runtime.Core
             Debug.Assert(_scoreManager != null, $"{nameof(GameBootstrap)} requires a {nameof(ScoreManager)} reference.", this);
             Debug.Assert(_gemPool != null, $"{nameof(GameBootstrap)} requires a {nameof(GemPool)} reference.", this);
             Debug.Assert(_gemSpawner != null, $"{nameof(GameBootstrap)} requires a {nameof(GemSpawner)} reference.", this);
+            Debug.Assert(_coinsWallet != null, $"{nameof(GameBootstrap)} requires a {nameof(CoinsWallet)} reference.", this);
         }
     }
 }

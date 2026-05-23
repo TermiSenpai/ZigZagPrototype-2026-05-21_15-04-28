@@ -68,8 +68,8 @@ namespace ZigZag.Runtime.Data
         [SerializeField, Range(0f, 1f), Tooltip("Probability per finalized segment that a gem is placed on one of its cubes.")]
         private float _gemSpawnProbability = 0.3f;
 
-        [SerializeField, Tooltip("Points awarded for each gem collected.")]
-        private int _gemValue = 10;
+        [SerializeField, Tooltip("Coins awarded per gem collected. Powerups may temporarily override this multiplier at runtime — see GDD §5.5.")]
+        private int _gemValue = 1;
 
         [SerializeField, Tooltip("Vertical offset above a cube's center where a gem sits. Pick a value clear of both the cube top and the ball radius so collection is reliable.")]
         private float _gemHeightAboveCubeCenter = 3.2f;

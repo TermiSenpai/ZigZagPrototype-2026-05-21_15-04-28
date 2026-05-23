@@ -5,21 +5,26 @@ using ZigZag.Runtime.Events;
 namespace ZigZag.Runtime.Gameplay.Scoring
 {
     /// <summary>
-    /// Accumulates the current run's score (gem points + distance progress), persists
-    /// the all-time best to <see cref="PlayerPrefs"/>, and broadcasts both via SO event
-    /// channels so the UI never holds a reference to this component.
+    /// Tracks the current run's distance score, persists the all-time best to
+    /// <see cref="PlayerPrefs"/>, and broadcasts both via SO event channels so
+    /// the UI never holds a reference to this component.
     /// </summary>
     /// <remarks>
     /// Distance is computed every frame from the ball's transform but only raises
-    /// <c>SO_OnScoreChanged</c> when the integer total moves — gem pickups are rare
-    /// enough to always raise. The origin for distance is the path start position
-    /// taken from <see cref="GameConfigSO.PathStartPosition"/>, so the progress axis
+    /// <c>SO_OnScoreChanged</c> when the integer total moves. The origin for
+    /// distance is the path start position taken from
+    /// <see cref="GameConfigSO.PathStartPosition"/>, so the progress axis
     /// matches what the <c>PathGenerator</c> uses for its buffers.
     ///
     /// Persistence: <c>PlayerPrefs.GetInt("BestScore", 0)</c> in <c>Awake</c>;
     /// <c>SetInt + Save</c> in <see cref="SaveBestIfHigher"/> (called on GameOver).
-    /// ADR-003 in zigzag_architecture.md picks PlayerPrefs over a file-based store
-    /// because a single int per device is the whole persistence story for the prototype.
+    /// ADR-003 in zigzag_architecture.md picks PlayerPrefs over a file-based
+    /// store because a single int per device is the whole persistence story
+    /// for the prototype.
+    ///
+    /// Gem pickups no longer contribute to the score — they are banked as
+    /// persistent currency by <c>CoinsWallet</c>. See spec
+    /// <c>docs/superpowers/specs/2026-05-23-split-coins-and-distance-score-design.md</c>.
     /// </remarks>
     [DisallowMultipleComponent]
     public sealed class ScoreManager : MonoBehaviour
@@ -34,9 +39,6 @@ namespace ZigZag.Runtime.Gameplay.Scoring
         private Transform _ballTransform;
 
         [Header("Event Channels (Inbound)")]
-        [SerializeField, Tooltip("Listened-to: each raise adds the payload to current score.")]
-        private IntGameEventSO _onGemCollected;
-
         [SerializeField, Tooltip("Listened-to: starts distance tracking.")]
         private GameEventSO _onGameStarted;
 
@@ -58,7 +60,6 @@ namespace ZigZag.Runtime.Gameplay.Scoring
         public int CurrentScore { get; private set; }
         public int BestScore { get; private set; }
 
-        private int _gemScore;
         private int _distanceScore;
         private bool _isTracking;
 
@@ -66,7 +67,6 @@ namespace ZigZag.Runtime.Gameplay.Scoring
         {
             Debug.Assert(_config != null, $"{nameof(ScoreManager)} requires a {nameof(GameConfigSO)} reference.", this);
             Debug.Assert(_ballTransform != null, $"{nameof(ScoreManager)} requires a ball Transform reference.", this);
-            Debug.Assert(_onGemCollected != null, $"{nameof(ScoreManager)} requires {nameof(_onGemCollected)}.", this);
             Debug.Assert(_onGameStarted != null, $"{nameof(ScoreManager)} requires {nameof(_onGameStarted)}.", this);
             Debug.Assert(_onGameOver != null, $"{nameof(ScoreManager)} requires {nameof(_onGameOver)}.", this);
             Debug.Assert(_onGameReset != null, $"{nameof(ScoreManager)} requires {nameof(_onGameReset)}.", this);
@@ -78,7 +78,6 @@ namespace ZigZag.Runtime.Gameplay.Scoring
 
         private void OnEnable()
         {
-            if (_onGemCollected != null) _onGemCollected.Register(HandleGemCollected);
             if (_onGameStarted != null) _onGameStarted.Register(HandleGameStarted);
             if (_onGameOver != null) _onGameOver.Register(HandleGameOver);
             if (_onGameReset != null) _onGameReset.Register(HandleGameReset);
@@ -86,7 +85,6 @@ namespace ZigZag.Runtime.Gameplay.Scoring
 
         private void OnDisable()
         {
-            if (_onGemCollected != null) _onGemCollected.Unregister(HandleGemCollected);
             if (_onGameStarted != null) _onGameStarted.Unregister(HandleGameStarted);
             if (_onGameOver != null) _onGameOver.Unregister(HandleGameOver);
             if (_onGameReset != null) _onGameReset.Unregister(HandleGameReset);
@@ -115,12 +113,6 @@ namespace ZigZag.Runtime.Gameplay.Scoring
             RecomputeAndBroadcast();
         }
 
-        private void HandleGemCollected(int gemValue)
-        {
-            _gemScore += gemValue;
-            RecomputeAndBroadcast();
-        }
-
         private void HandleGameStarted()
         {
             _isTracking = true;
@@ -135,16 +127,14 @@ namespace ZigZag.Runtime.Gameplay.Scoring
         private void HandleGameReset()
         {
             _isTracking = false;
-            _gemScore = 0;
             _distanceScore = 0;
             RecomputeAndBroadcast();
         }
 
         private void RecomputeAndBroadcast()
         {
-            int total = _gemScore + _distanceScore;
-            if (total == CurrentScore) return;
-            CurrentScore = total;
+            if (_distanceScore == CurrentScore) return;
+            CurrentScore = _distanceScore;
             _onScoreChanged.Raise(CurrentScore);
         }
 

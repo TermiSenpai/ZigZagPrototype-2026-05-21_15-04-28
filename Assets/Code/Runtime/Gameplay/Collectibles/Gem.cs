@@ -4,9 +4,10 @@ using ZigZag.Runtime.Events;
 namespace ZigZag.Runtime.Gameplay.Collectibles
 {
     /// <summary>
-    /// A pickup that rewards the player with <see cref="Value"/> points. The instance
-    /// is pooled; it returns itself to the pool on collection rather than being
-    /// destroyed.
+    /// A pickup that rewards the player with <see cref="Value"/> coins (banked by
+    /// <c>CoinsWallet</c> as persistent currency, not added to the run score). The
+    /// instance is pooled; it returns itself to the pool on collection rather than
+    /// being destroyed.
     /// </summary>
     /// <remarks>
     /// Trigger detection relies on a kinematic <c>Rigidbody</c> on the gem prefab —

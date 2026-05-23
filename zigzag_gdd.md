@@ -101,7 +101,7 @@ Estos pilares son la vara de medir para cualquier decisión. Si una feature no r
 
 - Spawn: al generar un tramo, con probabilidad **30%**, una gema se coloca sobre un cubo aleatorio del tramo.
 - Visual: `Cube` rotado 45° (queda como octaedro), material rosa con emission.
-- Trigger collider. Al `OnTriggerEnter` con la bola: +10 puntos, partículas, vuelta al pool.
+- Trigger collider. Al `OnTriggerEnter` con la bola: **+1 moneda** a la wallet persistente (no suma al score), partículas, vuelta al pool. El valor por gema (`_gemValue` en `GameConfigSO`) es configurable; powerups futuros podrán multiplicarlo temporalmente.
 - No bloquean ni desvían a la bola.
 
 ### 5.6 Powerup: Imán (incluido en el alcance)
@@ -152,11 +152,21 @@ Estos son **puntos de partida para tunear en semana 2**, no valores finales. Viv
 
 ### 7.2 Score y persistencia
 
-- **Distancia:** `Mathf.FloorToInt(ball.position.z) * distanceMultiplier`.
-- **Gemas:** contador independiente × `gemValue`.
-- **Score total:** suma de los dos.
-- **Best score:** `PlayerPrefs.GetInt("BestScore", 0)` al cargar; se actualiza al entrar en `GameOver` si supera el anterior.
-- **No** hay perfiles, leaderboards online ni historial. Un único int persistido.
+Dos magnitudes separadas, persistidas independientemente.
+
+#### 7.2.1 Score (solo distancia)
+
+- **Cálculo:** proyección de la posición de la bola sobre el eje global forward `(-1,0,1)/√2`, multiplicada por `distanceMultiplier` y truncada con `Mathf.FloorToInt`.
+- **Best score:** `PlayerPrefs.GetInt("BestScore", 0)` al cargar; se sobrescribe al entrar en `GameOver` si la run actual supera el anterior.
+- Las gemas **no** contribuyen al score.
+
+#### 7.2.2 Coins / Wallet (persistente)
+
+- Cada gema otorga `_gemValue` monedas (default `1`) a la wallet.
+- La wallet se persiste como `PlayerPrefs.GetInt("Coins", 0)` y se reescribe en cada pickup (robusto frente a cierre brusco).
+- Las monedas no se gastan todavía — son la base para una tienda futura, fuera del scope de este sprint (ver §11, §12).
+- Per-run counter (`SessionCoins`) se resetea en `GameReset` y se muestra en el panel GameOver como `"+N coins"`. La wallet total persiste.
+- **No** hay perfiles ni saves multiusuario. Un único int por device para score, otro para wallet.
 
 ### 7.3 Pooling
 
@@ -231,16 +241,18 @@ Tres SFX, sin música. Fuentes: freesound.org (CC0) o generados con sfxr/jsfxr.
 
 ### 10.2 HUD durante partida
 
-- Esquina superior izquierda: **score actual** grande.
+- Esquina superior izquierda: **score actual** grande (solo distancia).
 - Esquina superior derecha: **best score** pequeño.
+- Coins (wallet persistente) visible en una esquina secundaria (ej. inferior izquierda) con icono o etiqueta `Coins: N`.
 - Si hay powerup activo: pequeño indicador con tiempo restante.
 
 ### 10.3 Panel Game Over
 
 - Panel semi-transparente sobre escena congelada.
 - **"GAME OVER"**.
-- **"Score: XX"**.
+- **"Score: XX"** (distancia final).
 - **"Best: YY"**. Si hubo nuevo récord, "¡Nuevo récord!" en rosa.
+- **"+N coins"** — monedas ganadas en la run que acaba de terminar (la wallet total persiste sin necesidad de mostrarse aquí; se ve en el HUD durante la próxima run).
 - Botón **"RETRY"**.
 
 Todo con TextMeshPro. Fades simples, sin animaciones complejas.
@@ -256,7 +268,7 @@ Estas son decisiones que el revisor verá y debe entender el porqué. Las técni
 | Modo infinito en lugar de niveles | Es lo que es ZigZag realmente. La generación procedural demuestra capacidad técnica relevante para el rol |
 | 1 solo powerup (imán) | Demuestra arquitectura extensible (interfaz `IPowerup`) sin sobreingeniería |
 | Sin tutorial | Si necesita explicación, el diseño falla en el pilar #2 (lectura instantánea) |
-| Sin sistema de monedas / shop | Fuera del scope. Un test no se gana inventando features |
+| Tienda y gasto de currency fuera de scope este sprint | Las gemas otorgan currency persistente (`CoinsWallet`, key `"Coins"`), lista para una tienda futura. El gasto, los items y la UI de shop entran en una iteración posterior. Demuestra arquitectura extensible sin invertir tiempo en features que el test no requiere |
 | Cámara ortográfica, no perspectiva | Coincide con el original. Perspectiva añadiría problemas de oclusión |
 | Bola siempre del mismo color | El estilo visual prima sobre la personalización |
 | Score = distancia + gemas, sin multiplicadores | Lectura simple para el jugador. Multiplicadores son ruido en un prototipo |

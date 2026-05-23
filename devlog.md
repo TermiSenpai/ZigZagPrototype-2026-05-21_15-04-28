@@ -298,3 +298,51 @@ Cubierto íntegramente en `docs/superpowers/plans/2026-05-22-iteration-4-gems-an
 ### Próxima iteración (planteamiento)
 
 5. Powerup imán (`IPowerup`, `MagnetPowerup`, `PowerupManager`, `PowerupPool`). Atrae gemas en radio `R` durante `T` segundos. GDD §14 día 5. Demuestra que la arquitectura es extensible sin tocar `Gem`/`ScoreManager`.
+
+---
+
+## 2026-05-23 — Iteración 4.1: split gem coins ↔ distance score
+
+### Objetivo
+
+Separar conceptualmente y en el código las dos fuentes de "puntuación" combinadas en iteración 4: las gemas pasan a ser currency persistente preparada para una tienda futura; el `ScoreManager` queda como tracker de distancia puro. Reabre parcialmente la decisión cerrada del GDD §11 ("Sin sistema de monedas / shop fuera de scope") — la tienda sigue fuera, pero la infraestructura de wallet sí entra.
+
+### Lo que se ha implementado
+
+1. **Nueva sub-feature `Gameplay/Economy/`** con `CoinsWallet.cs`. `MonoBehaviour` único responsable de la PlayerPrefs key `"Coins"`. Suscrito a `SO_OnGemCollected` (suma a wallet + session) y `SO_OnGameReset` (resetea session, wallet intacta). Persistencia en cada pickup. Sin API `Spend` — la añade la iteración de tienda.
+
+2. **`ScoreManager` refactor**: borrado `_gemScore`, `_onGemCollected`, `HandleGemCollected`. `CurrentScore = _distanceScore` directo. Nombres públicos y PlayerPrefs key `"BestScore"` intactos por decisión del usuario; solo cambia la semántica (ahora es distancia pura).
+
+3. **`GameConfigSO._gemValue`** default `10 → 1`. Tooltip aclarado: "Coins awarded per gem collected. Powerups may temporarily override this multiplier at runtime."
+
+4. **`UIController` extendido** con `_hudCoinsText` y `_gameOverSessionCoinsText`. Dos canales nuevos: `SO_OnCoinsChanged` (HUD wallet) y `SO_OnSessionCoinsChanged` (panel GameOver `+N coins`).
+
+5. **`GameBootstrap`** añade ref + assert de `_coinsWallet`.
+
+6. **Docs**: GDD §5.5, §7.2 (separada en 7.2.1 score y 7.2.2 coins), §10.2, §10.3, §11; arquitectura §6.2, nuevo §7.17 `CoinsWallet` (GameBootstrap pasa a §7.18), nuevo ADR-013 "Wallet separada del score, persistida por pickup".
+
+### Decisiones tomadas en este split
+
+- **Sin renames** (instrucción explícita del usuario). `CurrentScore`, `BestScore`, `SO_OnScoreChanged` y la PlayerPrefs key `"BestScore"` se mantienen aunque ahora reflejen solo distancia. Hace que diffs en consumidores existentes sean nulos; el coste es que un revisor nuevo necesita leer el XML doc actualizado para entender la semántica.
+- **Persistencia por pickup, no por GameOver.** `PlayerPrefs.SetInt + Save` es barato (microsegundos por escritura) y un cierre brusco a media run no debe robarle coins al jugador. Para `BestScore` la decisión opuesta (escribir solo en GameOver) sigue siendo correcta — un score parcial no tiene valor.
+- **1 gema = 1 moneda como default tunable.** Powerups futuros podrán multiplicarlo temporalmente. Diseño aplazado al primer powerup que lo necesite — el path sugerido (en future considerations del spec) es que `GemSpawner` consulte un servicio de modificadores en lugar de leer `_config.GemValue` raw.
+- **No se migra la PlayerPrefs key `"BestScore"`.** Valores pre-iteración pueden contener `distancia + gemas`. Sin jugadores reales, no merece código de migración. Manual reset desde `Edit → Clear All PlayerPrefs` si se quiere baseline limpio.
+- **Sin tests nuevos para `CoinsWallet`.** Es `+=` + `PlayerPrefs.SetInt` sin invariantes. Cuando aparezca `TrySpend(int amount)` con guard de fondos, ese sí merece tests EditMode.
+
+### Pendiente — setup manual en Unity
+
+1. **Crear 2 SO de eventos** en `Assets/Settings/Events/`:
+   - `SO_OnCoinsChanged.asset` (IntGameEventSO).
+   - `SO_OnSessionCoinsChanged.asset` (IntGameEventSO).
+2. **GameObject `CoinsWallet`** en escena con el componente nuevo. Slots: `_onGemCollected` (existente `SO_OnGemCollected`), `_onGameReset` (existente), los 2 outbound SOs nuevos.
+3. **Canvas HUD**: añadir `TextMeshProUGUI` `Coins: 0` en una esquina contraria al score (ej. inferior izquierda).
+4. **Canvas GameOver**: añadir `TextMeshProUGUI` `+0 coins` debajo del score final.
+5. **`UIController`**: arrastrar los 2 TMP nuevos + los 2 SOs nuevos a sus slots.
+6. **`GameBootstrap`**: arrastrar el GameObject `CoinsWallet` al nuevo slot.
+7. **`SO_GameConfig.asset`**: cambiar `_gemValue` de 10 a 1.
+
+### Próxima iteración (planteamiento)
+
+5. Powerup imán (`IPowerup`, `MagnetPowerup`, `PowerupManager`, `PowerupPool`). Atrae gemas en radio `R` durante `T` segundos. GDD §14 día 5.
+
+Eventual: powerup multiplicador de coins (atomic con el imán o separado). Diseño aplazado hasta que se necesite — ver future considerations del spec de iteración 4.1.

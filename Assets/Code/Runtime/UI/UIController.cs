@@ -30,17 +30,24 @@ namespace ZigZag.Runtime.UI
         private GameObject _gameOverPanel;
 
         [Header("Score Display")]
-        [SerializeField, Tooltip("HUD text showing the current run's score during Playing.")]
+        [SerializeField, Tooltip("HUD text showing the current run's distance score during Playing.")]
         private TextMeshProUGUI _hudScoreText;
 
-        [SerializeField, Tooltip("GameOver panel text showing the final score of the just-ended run.")]
+        [SerializeField, Tooltip("GameOver panel text showing the final distance score of the just-ended run.")]
         private TextMeshProUGUI _gameOverFinalScoreText;
 
-        [SerializeField, Tooltip("GameOver and Menu text showing the persisted best score.")]
+        [SerializeField, Tooltip("GameOver and Menu text showing the persisted best distance score.")]
         private TextMeshProUGUI _bestScoreText;
 
         [SerializeField, Tooltip("GameObject toggled active when the just-ended run beat the previous best. Leave null if not used.")]
         private GameObject _newRecordBadge;
+
+        [Header("Coins Display")]
+        [SerializeField, Tooltip("HUD text showing the persistent coin wallet during Playing and Menu.")]
+        private TextMeshProUGUI _hudCoinsText;
+
+        [SerializeField, Tooltip("GameOver panel text showing coins earned in the just-ended run, formatted as \"+N coins\".")]
+        private TextMeshProUGUI _gameOverSessionCoinsText;
 
         [Header("Event Channels (Inbound)")]
         [SerializeField, Tooltip("Fires when the run starts; switches Menu → HUD.")]
@@ -52,11 +59,17 @@ namespace ZigZag.Runtime.UI
         [SerializeField, Tooltip("Fires on retry; switches GameOver → HUD.")]
         private GameEventSO _onGameReset;
 
-        [SerializeField, Tooltip("Listened-to: refreshes the HUD score text.")]
+        [SerializeField, Tooltip("Listened-to: refreshes the HUD distance score text.")]
         private IntGameEventSO _onScoreChanged;
 
-        [SerializeField, Tooltip("Listened-to: refreshes the best score text.")]
+        [SerializeField, Tooltip("Listened-to: refreshes the best distance score text.")]
         private IntGameEventSO _onBestScoreChanged;
+
+        [SerializeField, Tooltip("Listened-to: refreshes the HUD coin wallet text.")]
+        private IntGameEventSO _onCoinsChanged;
+
+        [SerializeField, Tooltip("Listened-to: refreshes the GameOver \"+N coins\" text.")]
+        private IntGameEventSO _onSessionCoinsChanged;
 
         [Header("Event Channels (Outbound)")]
         [SerializeField, Tooltip("Raised when the Retry button is clicked. The state machine listens.")]
@@ -79,6 +92,10 @@ namespace ZigZag.Runtime.UI
             Debug.Assert(_bestScoreText != null, $"{nameof(UIController)} requires {nameof(_bestScoreText)}.", this);
             Debug.Assert(_onScoreChanged != null, $"{nameof(UIController)} requires {nameof(_onScoreChanged)}.", this);
             Debug.Assert(_onBestScoreChanged != null, $"{nameof(UIController)} requires {nameof(_onBestScoreChanged)}.", this);
+            Debug.Assert(_hudCoinsText != null, $"{nameof(UIController)} requires {nameof(_hudCoinsText)}.", this);
+            Debug.Assert(_gameOverSessionCoinsText != null, $"{nameof(UIController)} requires {nameof(_gameOverSessionCoinsText)}.", this);
+            Debug.Assert(_onCoinsChanged != null, $"{nameof(UIController)} requires {nameof(_onCoinsChanged)}.", this);
+            Debug.Assert(_onSessionCoinsChanged != null, $"{nameof(UIController)} requires {nameof(_onSessionCoinsChanged)}.", this);
         }
 
         private void OnEnable()
@@ -88,6 +105,8 @@ namespace ZigZag.Runtime.UI
             if (_onGameReset != null) _onGameReset.Register(HandleGameReset);
             if (_onScoreChanged != null) _onScoreChanged.Register(HandleScoreChanged);
             if (_onBestScoreChanged != null) _onBestScoreChanged.Register(HandleBestScoreChanged);
+            if (_onCoinsChanged != null) _onCoinsChanged.Register(HandleCoinsChanged);
+            if (_onSessionCoinsChanged != null) _onSessionCoinsChanged.Register(HandleSessionCoinsChanged);
         }
 
         private void OnDisable()
@@ -97,6 +116,8 @@ namespace ZigZag.Runtime.UI
             if (_onGameReset != null) _onGameReset.Unregister(HandleGameReset);
             if (_onScoreChanged != null) _onScoreChanged.Unregister(HandleScoreChanged);
             if (_onBestScoreChanged != null) _onBestScoreChanged.Unregister(HandleBestScoreChanged);
+            if (_onCoinsChanged != null) _onCoinsChanged.Unregister(HandleCoinsChanged);
+            if (_onSessionCoinsChanged != null) _onSessionCoinsChanged.Unregister(HandleSessionCoinsChanged);
         }
 
         private void Start()
@@ -134,6 +155,16 @@ namespace ZigZag.Runtime.UI
             {
                 _newRecordBadge.SetActive(true);
             }
+        }
+
+        private void HandleCoinsChanged(int totalCoins)
+        {
+            if (_hudCoinsText != null) _hudCoinsText.text = $"Coins: {totalCoins}";
+        }
+
+        private void HandleSessionCoinsChanged(int sessionCoins)
+        {
+            if (_gameOverSessionCoinsText != null) _gameOverSessionCoinsText.text = $"+{sessionCoins} coins";
         }
 
         private void HandleGameStarted()
