@@ -25,8 +25,8 @@ MonoBehaviour:
   _pathStartPosition: {x: -2, y: -3, z: 3}
   _cubeSize: {x: 1, y: 5, z: 1}
   _segmentMinLength: 1
-  _segmentMaxLength: 3
-  _maxLateralDrift: 1.5
+  _segmentMaxLength: 5
+  _maxLateralDrift: 2
   _aheadBuffer: 30
   _behindBuffer: 10
   _generationSeed: 0

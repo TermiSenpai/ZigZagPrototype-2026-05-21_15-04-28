@@ -56,7 +56,7 @@ namespace ZigZag.Runtime.Data
         private int _segmentMaxLength = 5;
 
         [SerializeField, Tooltip("Soft cap on how far the path may drift from the path-start position along the axis perpendicular to global forward (i.e., screen-horizontal under the isometric camera). When a new segment would push the lateral position past this cap, the generator shrinks the segment length so the overshoot is bounded to one cube. Set to 0 to disable the bias and let the random walk run unconstrained.")]
-        private float _maxLateralDrift = 1.5f;
+        private float _maxLateralDrift = 2f;
 
         [SerializeField, Tooltip("Distance ahead of the ball, measured along the global forward axis (-X +Z diagonal), that the generator keeps populated.")]
         private float _aheadBuffer = 30f;
