@@ -30,8 +30,8 @@ MonoBehaviour:
   _behindBuffer: 10
   _generationSeed: 0
   _gemSpawnProbability: 0.3
-  _gemValue: 10
+  _gemValue: 1
   _gemHeightAboveCubeCenter: 3.2
-  _distanceMultiplier: 1
+  _distanceMultiplier: 3
   _platformPoolInitialSize: 50
   _gemPoolInitialSize: 20
