@@ -4,30 +4,41 @@ using ZigZag.Runtime.Data;
 namespace ZigZag.Runtime.Gameplay.CameraSystem
 {
     /// <summary>
-    /// Smoothly follows a target transform on the XZ plane while keeping the camera's
-    /// initial world Y locked. The locked Y prevents the camera from chasing the ball
-    /// downward when it falls off the path (ADR-007).
+    /// Smoothly follows a target transform by advancing the camera only along the
+    /// global forward axis <c>(-1, 0, 1)/√2</c>. Lateral target motion is discarded
+    /// by design — the ball visibly serpentines across the screen instead of being
+    /// kept dead-center, reproducing the original Ketchapp ZigZag behavior.
     /// </summary>
     /// <remarks>
-    /// The horizontal offset between camera and target is captured once at <see cref="Start"/>
-    /// (or whenever <see cref="SetTarget"/> is called) so the designer fully controls the
-    /// framing by placing the camera in the scene.
+    /// The camera origin (its world XZ at init) and the target origin (the target's
+    /// world position at init) are captured once at <see cref="Start"/> or whenever
+    /// <see cref="SetTarget"/> is called. Each <see cref="LateUpdate"/> the desired
+    /// position is recomputed from those origins via <see cref="CameraFollowMath"/>
+    /// and reached with <see cref="Vector3.SmoothDamp(Vector3,Vector3,ref Vector3,float)"/>.
+    /// The Y plane is locked to the camera's initial Y so the camera never chases
+    /// the ball downward when it falls off the path (ADR-007 + ADR-014).
     /// </remarks>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Camera))]
     public sealed class CameraFollow : MonoBehaviour
     {
+        // Mirrors PathGenerator.GlobalForward and ScoreManager's forward axis. Kept
+        // local to avoid coupling CameraSystem to PathGenerator; a single source of
+        // truth on GameConfigSO is a separate, future refactor.
+        private static readonly Vector3 GlobalForward = new Vector3(-1f, 0f, 1f).normalized;
+
         [Header("Dependencies")]
         [SerializeField, Tooltip("Source of the SmoothDamp approach time.")]
         private GameConfigSO _config;
 
-        [SerializeField, Tooltip("Transform the camera follows on X and Z. Y is ignored.")]
+        [SerializeField, Tooltip("Transform the camera follows. Only its motion along the global forward axis (-1,0,1)/√2 moves the camera.")]
         private Transform _target;
 
-        private Vector3 _horizontalOffset;
+        private Vector3 _cameraOrigin;
+        private Vector3 _targetOrigin;
         private float _lockedY;
         private Vector3 _smoothVelocity;
-        private bool _offsetCaptured;
+        private bool _originsCaptured;
 
         public Transform Target => _target;
 
@@ -38,18 +49,19 @@ namespace ZigZag.Runtime.Gameplay.CameraSystem
 
         private void Start()
         {
-            CaptureOffset();
+            CaptureOrigins();
         }
 
         private void LateUpdate()
         {
-            if (_target == null || _config == null || !_offsetCaptured) return;
+            if (_target == null || _config == null || !_originsCaptured) return;
 
-            Vector3 targetPosition = _target.position;
-            Vector3 desired = new Vector3(
-                targetPosition.x + _horizontalOffset.x,
-                _lockedY,
-                targetPosition.z + _horizontalOffset.z);
+            Vector3 desired = CameraFollowMath.ComputeDesiredPosition(
+                _cameraOrigin,
+                _targetOrigin,
+                _target.position,
+                GlobalForward,
+                _lockedY);
 
             transform.position = Vector3.SmoothDamp(
                 transform.position,
@@ -59,34 +71,30 @@ namespace ZigZag.Runtime.Gameplay.CameraSystem
         }
 
         /// <summary>
-        /// Reassigns the follow target and recaptures the horizontal offset and locked
-        /// Y from the current camera and target positions. Intended for runtime wiring
+        /// Reassigns the follow target and recaptures the camera/target origins
+        /// and locked Y from the current world state. Intended for runtime wiring
         /// from a bootstrapper.
         /// </summary>
         public void SetTarget(Transform target)
         {
             _target = target;
             _smoothVelocity = Vector3.zero;
-            CaptureOffset();
+            CaptureOrigins();
         }
 
-        private void CaptureOffset()
+        private void CaptureOrigins()
         {
-            Vector3 cameraPosition = transform.position;
-            _lockedY = cameraPosition.y;
+            _cameraOrigin = transform.position;
+            _lockedY = _cameraOrigin.y;
 
             if (_target == null)
             {
-                _offsetCaptured = false;
+                _originsCaptured = false;
                 return;
             }
 
-            Vector3 targetPosition = _target.position;
-            _horizontalOffset = new Vector3(
-                cameraPosition.x - targetPosition.x,
-                0f,
-                cameraPosition.z - targetPosition.z);
-            _offsetCaptured = true;
+            _targetOrigin = _target.position;
+            _originsCaptured = true;
         }
     }
 }
