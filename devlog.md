@@ -357,3 +357,38 @@ Swap semántico HUD ↔ GameOver tras playtest:
 Razón: el HUD muestra progreso de la run en curso (motivación inmediata); el GameOver es el lugar donde tiene sentido leer el balance acumulado (preview de lo que podrá gastarse). El reparto inicial estaba al revés y se notaba: durante la partida no necesitas ver el total persistente, ya que no puedes gastarlo todavía.
 
 Cambios de código (commit aparte): `UIController._gameOverSessionCoinsText` → `_gameOverTotalCoinsText` (con `[FormerlySerializedAs]` para no romper el wire de escena ya hecho); swap de a qué TMP escribe cada handler. Spec §4.4, §5, §6 y nuevo §12 actualizados.
+
+---
+
+## 2026-05-24 — Iteración 4.2: cámara solo-forward
+
+### Objetivo
+
+Corregir el seguimiento de cámara para que avance **solo** a lo largo del eje global forward `(-1, 0, 1)/√2`, reproduciendo el comportamiento del ZigZag original: la cámara sube en pantalla, la bola serpentea lateralmente sobre ella. La implementación previa seguía X y Z del target por separado, lo que mantenía la bola centrada y eliminaba la oscilación visual.
+
+### Lo que se ha implementado
+
+1. **`CameraFollowMath`** (`Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollowMath.cs`)
+   Helper estático puro. `ComputeDesiredPosition(cameraOrigin, targetOrigin, targetCurrent, forwardAxis, lockedY)` proyecta el delta del target sobre el eje forward y devuelve la posición deseada (con Y bloqueada). Sin Unity lifecycle, testeable en EditMode igual que `ScoreCalculator`.
+
+2. **`CameraFollowMathTests`** (`Assets/Code/Tests/EditMode/Gameplay/CameraSystem/CameraFollowMathTests.cs`)
+   Siete tests: target estático, movimiento +Z puro, movimiento -X puro, movimiento perpendicular (debe dar cero), diagonal pura, caída en Y (no debe afectar XZ), y verificación de que `lockedY` sobrescribe `cameraOrigin.y`.
+
+3. **`CameraFollow` refactor** (`Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollow.cs`)
+   `_horizontalOffset` reemplazado por `_cameraOrigin` + `_targetOrigin`. `LateUpdate` delega en `CameraFollowMath` y aplica `SmoothDamp` hacia el resultado. Constante `GlobalForward = (-1, 0, 1).normalized` local al archivo (duplicada con `PathGenerator` deliberadamente; deduplicar es otra iteración).
+
+### Decisiones tomadas durante la implementación
+
+- **No clamp del progreso forward.** Si el target retrocede en forward (no ocurre en gameplay normal — solo al recapturar origins en `SetTarget`), la matemática lo soporta sin caso especial.
+- **`GlobalForward` no se mueve a `GameConfigSO`.** Estaría bien tener única fuente de verdad, pero arrastra a `PathGenerator` y `ScoreManager` al refactor. Fuera de alcance de esta iteración.
+- **Sin cambio en `orthographicSize`.** El cambio puede revelar drift lateral visible; si lo hace, se trata como tuning aparte, no se mete en el mismo commit que el cambio de cámara.
+
+### ADR
+
+- **ADR-014** añadido: "Cámara avanza solo en el eje global forward". Ver `zigzag_architecture.md`.
+- **ADR-007** actualizado con cross-reference a ADR-014.
+
+### Pendiente
+
+- Tuning de `orthographicSize` si la verificación manual lo justifica.
+- (Largo plazo) Mover `GlobalForward` a `GameConfigSO` como única fuente de verdad compartida con `PathGenerator` y `ScoreManager`.

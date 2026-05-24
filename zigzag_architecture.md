@@ -580,7 +580,7 @@ namespace ZigZag.Runtime.Gameplay.Scoring
 
 **Eventos:** suscrito a `SO_OnGemCollected` (suma score), `SO_OnGameOver` (llama `SaveBestIfHigher`). Persistencia: `PlayerPrefs.GetInt("BestScore", 0)` en `Awake`, `SetInt` + `Save` al guardar.
 
-### 7.10 `CameraFollow` (`ZigZag.Runtime.Gameplay.CameraSystem`)
+### 7.10 `CameraFollow` y `CameraFollowMath` (`ZigZag.Runtime.Gameplay.CameraSystem`)
 
 ```csharp
 namespace ZigZag.Runtime.Gameplay.CameraSystem
@@ -588,12 +588,25 @@ namespace ZigZag.Runtime.Gameplay.CameraSystem
     [DisallowMultipleComponent]
     public sealed class CameraFollow : MonoBehaviour
     {
+        public Transform Target { get; }
         public void SetTarget(Transform target);
+    }
+
+    public static class CameraFollowMath
+    {
+        public static Vector3 ComputeDesiredPosition(
+            Vector3 cameraOrigin,
+            Vector3 targetOrigin,
+            Vector3 targetCurrent,
+            Vector3 forwardAxis,
+            float lockedY);
     }
 }
 ```
 
 Namespace `CameraSystem` (no `Camera`) para no colisionar con `UnityEngine.Camera`.
+
+**Regla de movimiento (ADR-014):** la cámara avanza **solo** a lo largo del eje global forward `(-1, 0, 1)/√2`. La componente perpendicular del desplazamiento del target se descarta — el frame se queda quieto lateralmente y la bola serpentea visiblemente por la pantalla, reproduciendo el comportamiento del ZigZag original. La Y se bloquea a la Y inicial de la cámara para que no persiga la bola en su caída. La matemática vive en `CameraFollowMath` (estática, sin Unity lifecycle, cubierta por tests EditMode en `Assets/Code/Tests/EditMode/Gameplay/CameraSystem/CameraFollowMathTests.cs`).
 
 ### 7.11 `IPowerup` (`ZigZag.Runtime.Gameplay.Powerups`)
 
@@ -813,7 +826,7 @@ Cada decisión es defendible. Si en la review preguntan "¿por qué X?", la resp
 
 **Alternativas:** Cinemachine (paquete extra, en duda con el brief), hija de la bola (jitter).
 
-**Consecuencias:** ~20 líneas propias. Más simple de revisar.
+**Consecuencias:** ~20 líneas propias. Más simple de revisar. **Ver también ADR-014** — refinamiento del eje de seguimiento (solo forward).
 
 ### ADR-008 — Una sola escena
 
@@ -1098,3 +1111,18 @@ Antes de empaquetar el zip:
 3. **Cuando surja una duda arquitectónica:** consultar ADRs (§8) o añadir uno nuevo si la decisión es nueva.
 4. **Al final de cada semana:** repasar §17 completo.
 5. **Si una regla de este documento entra en conflicto con `CLAUDE.md`:** gana `CLAUDE.md` y se actualiza este documento.
+
+### ADR-014 — Cámara avanza solo en el eje global forward
+
+**Decisión:** `CameraFollow` proyecta el desplazamiento del target sobre `(-1, 0, 1)/√2` y solo aplica esa componente; la perpendicular se descarta. La Y queda bloqueada a la Y inicial de la cámara.
+
+**Alternativas consideradas:**
+- Seguir X y Z del target por separado (implementación original). Mantiene la bola centrada en pantalla; rompe el feel del ZigZag de Ketchapp donde la cámara solo "sube" y la bola serpentea.
+- Seguir todo el delta pero con damping mucho más fuerte en la perpendicular. Más complejo de tunear, mismo resultado visual aproximado.
+
+**Justificación:** el pilar #2 del GDD ("lectura instantánea") y el feel del juego de referencia exigen que el jugador perciba la oscilación lateral de la bola como información visual primaria. Si la cámara la compensa, la oscilación deja de leerse.
+
+**Consecuencias:**
+- La excursión lateral acumulada de la bola pasa a ser visible. Si supera el ancho del frustum hay que tunear `orthographicSize` o sesgar `PathGenerator` para acotar el drift. Esta calibración es un eje de cambio independiente y se aborda como tuning, no como código nuevo.
+- El reset de la bola al spawn provoca un scroll-back suave de la cámara (mismo comportamiento que la implementación anterior; no es regresión).
+- Matemática extraída a `CameraFollowMath` para test unitario en EditMode, siguiendo el patrón de `ScoreCalculator`.
