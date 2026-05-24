@@ -1,5 +1,6 @@
 using TMPro;
 using UnityEngine;
+using UnityEngine.Serialization;
 using ZigZag.Runtime.Events;
 
 namespace ZigZag.Runtime.UI
@@ -43,11 +44,12 @@ namespace ZigZag.Runtime.UI
         private GameObject _newRecordBadge;
 
         [Header("Coins Display")]
-        [SerializeField, Tooltip("HUD text showing the persistent coin wallet during Playing and Menu.")]
+        [SerializeField, Tooltip("HUD text showing coins collected during the current run (session counter, resets on retry).")]
         private TextMeshProUGUI _hudCoinsText;
 
-        [SerializeField, Tooltip("GameOver panel text showing coins earned in the just-ended run, formatted as \"+N coins\".")]
-        private TextMeshProUGUI _gameOverSessionCoinsText;
+        [SerializeField, Tooltip("GameOver panel text showing the player's total persistent coin wallet.")]
+        [FormerlySerializedAs("_gameOverSessionCoinsText")]
+        private TextMeshProUGUI _gameOverTotalCoinsText;
 
         [Header("Event Channels (Inbound)")]
         [SerializeField, Tooltip("Fires when the run starts; switches Menu → HUD.")]
@@ -93,7 +95,7 @@ namespace ZigZag.Runtime.UI
             Debug.Assert(_onScoreChanged != null, $"{nameof(UIController)} requires {nameof(_onScoreChanged)}.", this);
             Debug.Assert(_onBestScoreChanged != null, $"{nameof(UIController)} requires {nameof(_onBestScoreChanged)}.", this);
             Debug.Assert(_hudCoinsText != null, $"{nameof(UIController)} requires {nameof(_hudCoinsText)}.", this);
-            Debug.Assert(_gameOverSessionCoinsText != null, $"{nameof(UIController)} requires {nameof(_gameOverSessionCoinsText)}.", this);
+            Debug.Assert(_gameOverTotalCoinsText != null, $"{nameof(UIController)} requires {nameof(_gameOverTotalCoinsText)}.", this);
             Debug.Assert(_onCoinsChanged != null, $"{nameof(UIController)} requires {nameof(_onCoinsChanged)}.", this);
             Debug.Assert(_onSessionCoinsChanged != null, $"{nameof(UIController)} requires {nameof(_onSessionCoinsChanged)}.", this);
         }
@@ -159,12 +161,12 @@ namespace ZigZag.Runtime.UI
 
         private void HandleCoinsChanged(int totalCoins)
         {
-            if (_hudCoinsText != null) _hudCoinsText.text = $"Coins: {totalCoins}";
+            if (_gameOverTotalCoinsText != null) _gameOverTotalCoinsText.text = $"Coins: {totalCoins}";
         }
 
         private void HandleSessionCoinsChanged(int sessionCoins)
         {
-            if (_gameOverSessionCoinsText != null) _gameOverSessionCoinsText.text = $"+{sessionCoins} coins";
+            if (_hudCoinsText != null) _hudCoinsText.text = $"+{sessionCoins}";
         }
 
         private void HandleGameStarted()

@@ -346,3 +346,14 @@ Separar conceptualmente y en el código las dos fuentes de "puntuación" combina
 5. Powerup imán (`IPowerup`, `MagnetPowerup`, `PowerupManager`, `PowerupPool`). Atrae gemas en radio `R` durante `T` segundos. GDD §14 día 5.
 
 Eventual: powerup multiplicador de coins (atomic con el imán o separado). Diseño aplazado hasta que se necesite — ver future considerations del spec de iteración 4.1.
+
+### Addendum (mismo día, post-wiring)
+
+Swap semántico HUD ↔ GameOver tras playtest:
+
+- **HUD**: `+{sessionCoins}` (coins ganadas en la run actual). Reseteo automático en cada Retry vía `SO_OnSessionCoinsChanged.Raise(0)` que `CoinsWallet.HandleGameReset` ya disparaba.
+- **GameOver**: `Coins: {totalCoins}` (wallet total persistente, lo que el jugador "tiene en el bolsillo" para una futura tienda).
+
+Razón: el HUD muestra progreso de la run en curso (motivación inmediata); el GameOver es el lugar donde tiene sentido leer el balance acumulado (preview de lo que podrá gastarse). El reparto inicial estaba al revés y se notaba: durante la partida no necesitas ver el total persistente, ya que no puedes gastarlo todavía.
+
+Cambios de código (commit aparte): `UIController._gameOverSessionCoinsText` → `_gameOverTotalCoinsText` (con `[FormerlySerializedAs]` para no romper el wire de escena ya hecho); swap de a qué TMP escribe cada handler. Spec §4.4, §5, §6 y nuevo §12 actualizados.

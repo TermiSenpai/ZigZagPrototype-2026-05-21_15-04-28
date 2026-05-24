@@ -93,16 +93,18 @@ Mantiene:
 ### 4.4 Modificación: `UIController`
 
 Nuevos campos serializados:
-- `[SerializeField] private TextMeshProUGUI _hudCoinsText` — HUD durante partida, formato `Coins: {TotalCoins}`.
-- `[SerializeField] private TextMeshProUGUI _gameOverSessionCoinsText` — panel GameOver, formato `+{SessionCoins} coins`.
+- `[SerializeField] private TextMeshProUGUI _hudCoinsText` — HUD durante partida, muestra **coins de la run actual** con formato `+{SessionCoins}`.
+- `[SerializeField] private TextMeshProUGUI _gameOverTotalCoinsText` — panel GameOver, muestra **total wallet persistente** con formato `Coins: {TotalCoins}`.
 - `[SerializeField] private IntGameEventSO _onCoinsChanged`.
 - `[SerializeField] private IntGameEventSO _onSessionCoinsChanged`.
 
 Nuevos handlers (mismo patrón que el resto):
-- `HandleCoinsChanged(int total)` → `_hudCoinsText.text = $"Coins: {total}"`.
-- `HandleSessionCoinsChanged(int session)` → `_gameOverSessionCoinsText.text = $"+{session} coins"`.
+- `HandleSessionCoinsChanged(int session)` → `_hudCoinsText.text = $"+{session}"`.
+- `HandleCoinsChanged(int total)` → `_gameOverTotalCoinsText.text = $"Coins: {total}"`.
 
 Suscritos en `OnEnable`, desuscritos en `OnDisable`. Asserts en `Awake`.
+
+**Justificación del reparto:** el HUD enseña "lo que llevas ganado en esta run" (motivación de seguir jugando, lectura inmediata para el jugador); el GameOver enseña "lo que tienes acumulado para la tienda" (preview del balance que podrá gastarse). El run-counter en HUD se resetea automáticamente al `_onGameReset` porque `CoinsWallet` raise `_onSessionCoinsChanged(0)`.
 
 ### 4.5 Modificación: `GameBootstrap`
 
@@ -119,8 +121,8 @@ Sin cambios funcionales. Comentario XML aclara que `Value` representa coins, no 
 - `Assets/Settings/Events/SO_OnCoinsChanged.asset` (`IntGameEventSO`).
 - `Assets/Settings/Events/SO_OnSessionCoinsChanged.asset` (`IntGameEventSO`).
 - En escena: GameObject `CoinsWallet` con el componente, wires del Inspector.
-- En Canvas HUD: TMP `Coins: 0` (esquina superior derecha; el score está a la izquierda).
-- En Canvas GameOver: TMP `+0 coins` debajo del score final.
+- En Canvas HUD: TMP `+0` (run counter) en esquina secundaria al score actual.
+- En Canvas GameOver: TMP `Coins: 0` (total wallet) debajo del score final.
 - En `SO_GameConfig`: bajar `_gemValue` 10 → 1.
 - En `GameBootstrap`: arrastrar `CoinsWallet` al nuevo slot.
 
@@ -137,9 +139,9 @@ Bola ↦ Gem.OnTriggerEnter
             ├─> TotalCoins += 1; SessionCoins += 1
             ├─> PlayerPrefs.SetInt("Coins", TotalCoins) + Save
             ├─> SO_OnCoinsChanged.Raise(TotalCoins)
-            │    └─> UIController updates HUD "Coins: N"
+            │    └─> UIController updates GameOver "Coins: N" (no-op si no está visible)
             └─> SO_OnSessionCoinsChanged.Raise(SessionCoins)
-                 └─> UIController updates GameOver "+N coins" (no-op si no está visible)
+                 └─> UIController updates HUD "+N"
 ```
 
 `ScoreManager` ya **no** está suscrito a `SO_OnGemCollected`.
@@ -152,7 +154,7 @@ Retry pressed
        ├─> CoinsWallet.HandleGameReset
        │    ├─> SessionCoins = 0
        │    └─> SO_OnSessionCoinsChanged.Raise(0)
-       │         (TotalCoins intacto; el HUD no se actualiza porque _onCoinsChanged no se raise)
+       │         (resetea el HUD "+0"; TotalCoins intacto, el GameOver no se actualiza porque _onCoinsChanged no se raise)
        └─> GemSpawner, PathGenerator, UIController ... (sin cambios)
 ```
 
@@ -221,3 +223,21 @@ Notas para evitar reabrir este spec cuando vuelva el tema:
 - `zigzag_gdd.md`, `zigzag_architecture.md`, `devlog.md`
 
 **Sin renames de tipos, campos serializados públicos, propiedades públicas ni PlayerPrefs keys existentes.**
+
+---
+
+## 12. Addendum 2026-05-24 — Swap HUD ↔ GameOver
+
+Tras el primer playtest, intercambio semántico de las dos pantallas:
+
+- **HUD** ahora muestra **coins de la run actual** (session), formato `+{N}`.
+- **GameOver** ahora muestra **wallet total persistente**, formato `Coins: {N}`.
+
+Razón: el HUD es contexto de progreso ("vas ganando esto"), el GameOver es contexto de balance ("tienes esto en total para gastar después en la tienda").
+
+Cambios:
+- `UIController._gameOverSessionCoinsText` → renombrado `_gameOverTotalCoinsText` con `[FormerlySerializedAs("_gameOverSessionCoinsText")]` para preservar el wire de escena.
+- `HandleSessionCoinsChanged` ahora escribe en el HUD, `HandleCoinsChanged` en el GameOver.
+- Format strings: HUD `+{N}` (sin la palabra "coins" para mantener el HUD limpio); GameOver `Coins: {N}`.
+
+El nombre `_hudCoinsText` se mantiene — el campo describe **dónde** está el TMP, no qué número muestra. El nombre del field de GameOver sí cambia porque "session" en el nombre quedaba directamente engañoso.
