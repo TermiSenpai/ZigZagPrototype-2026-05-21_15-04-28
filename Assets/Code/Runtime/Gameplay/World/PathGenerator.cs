@@ -55,6 +55,7 @@ namespace ZigZag.Runtime.Gameplay.World
         private static readonly Vector3 AlongNegativeX = new Vector3(-1f, 0f, 0f);
         private static readonly Vector3 AlongPositiveZ = new Vector3(0f, 0f, 1f);
         private static readonly Vector3 GlobalForward = new Vector3(-1f, 0f, 1f).normalized;
+        private static readonly Vector3 GlobalPerpendicular = new Vector3(1f, 0f, 1f).normalized;
 
         private readonly Queue<Segment> _segments = new Queue<Segment>(16);
         private System.Random _random;
@@ -213,13 +214,46 @@ namespace ZigZag.Runtime.Gameplay.World
         {
             _currentSegment = new Segment(_currentDirection);
             _segments.Enqueue(_currentSegment);
-            _currentSegmentTargetLength = _random.Next(_config.SegmentMinLength, _config.SegmentMaxLength + 1);
 
             Vector3 firstCubePosition = isFirstSegment
                 ? _config.PathStartPosition
                 : _lastCubePosition + GetSpawnStep(_currentDirection);
 
+            _currentSegmentTargetLength = PickSegmentLength(firstCubePosition);
+
             SpawnCubeAt(firstCubePosition);
+        }
+
+        /// <summary>
+        /// Picks a length for the segment about to be spawned, optionally shrinking it
+        /// so the lateral position of its last cube stays within
+        /// <see cref="GameConfigSO.MaxLateralDrift"/> of the path origin. Without this
+        /// bias the path would random-walk perpendicularly to the camera's forward axis
+        /// and eventually exceed the visible frustum.
+        /// </summary>
+        private int PickSegmentLength(Vector3 segmentStartPosition)
+        {
+            int minLen = _config.SegmentMinLength;
+            int maxLen = _config.SegmentMaxLength;
+            int desired = _random.Next(minLen, maxLen + 1);
+
+            float cap = _config.MaxLateralDrift;
+            if (cap <= 0f) return desired;
+
+            float startLateral = Vector3.Dot(segmentStartPosition - _config.PathStartPosition, GlobalPerpendicular);
+            float perCubeLateral = Vector3.Dot(GetSpawnStep(_currentDirection), GlobalPerpendicular);
+
+            // Direction has no perpendicular component (parallel to forward); drift can't grow.
+            if (Mathf.Approximately(perCubeLateral, 0f)) return desired;
+
+            bool pushesAwayFromCenter = Mathf.Sign(perCubeLateral) == Mathf.Sign(startLateral) || Mathf.Approximately(startLateral, 0f);
+            if (!pushesAwayFromCenter) return desired;
+
+            float headroom = cap - Mathf.Abs(startLateral);
+            if (headroom <= 0f) return minLen;
+
+            int allowed = Mathf.FloorToInt(headroom / Mathf.Abs(perCubeLateral));
+            return Mathf.Clamp(Mathf.Min(desired, allowed), minLen, maxLen);
         }
 
         private void SpawnCubeAt(Vector3 position)
