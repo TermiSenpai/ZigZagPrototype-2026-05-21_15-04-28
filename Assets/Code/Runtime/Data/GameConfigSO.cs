@@ -43,8 +43,11 @@ namespace ZigZag.Runtime.Data
         private float _cameraFollowSmoothTime = 0.15f;
 
         [Header("Path Generation")]
-        [SerializeField, Tooltip("World position of the first cube of the generated path. The ball spawn point should sit above this position.")]
+        [SerializeField, Tooltip("World position of the first cube of the generated path, paired with an initial -X segment direction. The ball spawn point should sit above a static platform whose corner is adjacent to this cube.")]
         private Vector3 _pathStartPosition = new Vector3(-2f, -3f, 3f);
+
+        [SerializeField, Tooltip("Mirror-image alternate start, paired with an initial +Z segment direction. Each run randomly picks between this and PathStartPosition so the path doesn't always extend in the same direction from the spawn platform. Must project to the same value as PathStartPosition on the global forward axis (-X+Z diagonal) so the score baseline is unaffected.")]
+        private Vector3 _pathStartPositionAlternate = new Vector3(-3f, -3f, 2f);
 
         [SerializeField, Tooltip("Size of a single platform cube in world units. X and Z determine the spacing between consecutive cubes; Y is purely visual.")]
         private Vector3 _cubeSize = new Vector3(1f, 5f, 1f);
@@ -97,6 +100,7 @@ namespace ZigZag.Runtime.Data
         public LayerMask GroundLayerMask => _groundLayerMask;
         public float CameraFollowSmoothTime => _cameraFollowSmoothTime;
         public Vector3 PathStartPosition => _pathStartPosition;
+        public Vector3 PathStartPositionAlternate => _pathStartPositionAlternate;
         public Vector3 CubeSize => _cubeSize;
         public int SegmentMinLength => _segmentMinLength;
         public int SegmentMaxLength => _segmentMaxLength;

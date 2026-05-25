@@ -60,6 +60,7 @@ namespace ZigZag.Runtime.Gameplay.World
         private readonly Queue<Segment> _segments = new Queue<Segment>(16);
         private System.Random _random;
         private Vector3 _currentDirection;
+        private Vector3 _runStartPosition;
         private Segment _currentSegment;
         private int _currentSegmentTargetLength;
         private Vector3 _lastCubePosition;
@@ -122,6 +123,28 @@ namespace ZigZag.Runtime.Gameplay.World
             InitializePath();
         }
 
+        /// <summary>
+        /// Coin-flips the run's starting cube + segment direction between the two
+        /// configured options. The pair is fixed: primary start with -X, alternate
+        /// start with +Z — they are mirror images across the global forward axis,
+        /// so distance scoring (which uses <see cref="GameConfigSO.PathStartPosition"/>
+        /// as its origin) sees the same forward projection either way.
+        /// </summary>
+        private void PickRunStart()
+        {
+            bool useAlternate = _random.Next(2) == 1;
+            if (useAlternate)
+            {
+                _runStartPosition = _config.PathStartPositionAlternate;
+                _currentDirection = AlongPositiveZ;
+            }
+            else
+            {
+                _runStartPosition = _config.PathStartPosition;
+                _currentDirection = AlongNegativeX;
+            }
+        }
+
         private System.Random CreateRandom()
         {
             // Sentinel: seed == 0 → pick a fresh seed every run so each retry feels new.
@@ -137,7 +160,7 @@ namespace ZigZag.Runtime.Gameplay.World
         {
             if (_config == null || _pool == null) return;
 
-            _currentDirection = AlongNegativeX;
+            PickRunStart();
             StartNewSegment(isFirstSegment: true);
 
             int safety = InitializationSafetyLimit;
@@ -216,7 +239,7 @@ namespace ZigZag.Runtime.Gameplay.World
             _segments.Enqueue(_currentSegment);
 
             Vector3 firstCubePosition = isFirstSegment
-                ? _config.PathStartPosition
+                ? _runStartPosition
                 : _lastCubePosition + GetSpawnStep(_currentDirection);
 
             _currentSegmentTargetLength = PickSegmentLength(firstCubePosition);
@@ -240,7 +263,7 @@ namespace ZigZag.Runtime.Gameplay.World
             float cap = _config.MaxLateralDrift;
             if (cap <= 0f) return desired;
 
-            float startLateral = Vector3.Dot(segmentStartPosition - _config.PathStartPosition, GlobalPerpendicular);
+            float startLateral = Vector3.Dot(segmentStartPosition - _runStartPosition, GlobalPerpendicular);
             float perCubeLateral = Vector3.Dot(GetSpawnStep(_currentDirection), GlobalPerpendicular);
 
             // Direction has no perpendicular component (parallel to forward); drift can't grow.

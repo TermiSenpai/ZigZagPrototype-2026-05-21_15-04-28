@@ -23,10 +23,11 @@ MonoBehaviour:
     m_Bits: 4294967295
   _cameraFollowSmoothTime: 0.15
   _pathStartPosition: {x: -2, y: -3, z: 3}
+  _pathStartPositionAlternate: {x: -3, y: -3, z: 2}
   _cubeSize: {x: 1, y: 5, z: 1}
   _segmentMinLength: 1
   _segmentMaxLength: 5
-  _maxLateralDrift: 2
+  _maxLateralDrift: 3
   _aheadBuffer: 30
   _behindBuffer: 10
   _generationSeed: 0
