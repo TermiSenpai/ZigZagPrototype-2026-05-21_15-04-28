@@ -1,4 +1,6 @@
+using TMPro;
 using UnityEngine;
+using UnityEngine.Serialization;
 using ZigZag.Runtime.Events;
 
 namespace ZigZag.Runtime.UI
@@ -28,6 +30,27 @@ namespace ZigZag.Runtime.UI
         [SerializeField, Tooltip("Root GameObject of the Game Over panel. Active in GameOver state.")]
         private GameObject _gameOverPanel;
 
+        [Header("Score Display")]
+        [SerializeField, Tooltip("HUD text showing the current run's distance score during Playing.")]
+        private TextMeshProUGUI _hudScoreText;
+
+        [SerializeField, Tooltip("GameOver panel text showing the final distance score of the just-ended run.")]
+        private TextMeshProUGUI _gameOverFinalScoreText;
+
+        [SerializeField, Tooltip("GameOver and Menu text showing the persisted best distance score.")]
+        private TextMeshProUGUI _bestScoreText;
+
+        [SerializeField, Tooltip("GameObject toggled active when the just-ended run beat the previous best. Leave null if not used.")]
+        private GameObject _newRecordBadge;
+
+        [Header("Coins Display")]
+        [SerializeField, Tooltip("HUD text showing coins collected during the current run (session counter, resets on retry).")]
+        private TextMeshProUGUI _hudCoinsText;
+
+        [SerializeField, Tooltip("GameOver panel text showing the player's total persistent coin wallet.")]
+        [FormerlySerializedAs("_gameOverSessionCoinsText")]
+        private TextMeshProUGUI _gameOverTotalCoinsText;
+
         [Header("Event Channels (Inbound)")]
         [SerializeField, Tooltip("Fires when the run starts; switches Menu → HUD.")]
         private GameEventSO _onGameStarted;
@@ -38,9 +61,24 @@ namespace ZigZag.Runtime.UI
         [SerializeField, Tooltip("Fires on retry; switches GameOver → HUD.")]
         private GameEventSO _onGameReset;
 
+        [SerializeField, Tooltip("Listened-to: refreshes the HUD distance score text.")]
+        private IntGameEventSO _onScoreChanged;
+
+        [SerializeField, Tooltip("Listened-to: refreshes the best distance score text.")]
+        private IntGameEventSO _onBestScoreChanged;
+
+        [SerializeField, Tooltip("Listened-to: refreshes the HUD coin wallet text.")]
+        private IntGameEventSO _onCoinsChanged;
+
+        [SerializeField, Tooltip("Listened-to: refreshes the GameOver \"+N coins\" text.")]
+        private IntGameEventSO _onSessionCoinsChanged;
+
         [Header("Event Channels (Outbound)")]
         [SerializeField, Tooltip("Raised when the Retry button is clicked. The state machine listens.")]
         private GameEventSO _onRetryRequested;
+
+        private int _lastKnownBest;
+        private bool _newBestSeenInThisRun;
 
         private void Awake()
         {
@@ -51,6 +89,15 @@ namespace ZigZag.Runtime.UI
             Debug.Assert(_onGameOver != null, $"{nameof(UIController)} requires {nameof(_onGameOver)}.", this);
             Debug.Assert(_onGameReset != null, $"{nameof(UIController)} requires {nameof(_onGameReset)}.", this);
             Debug.Assert(_onRetryRequested != null, $"{nameof(UIController)} requires {nameof(_onRetryRequested)}.", this);
+            Debug.Assert(_hudScoreText != null, $"{nameof(UIController)} requires {nameof(_hudScoreText)}.", this);
+            Debug.Assert(_gameOverFinalScoreText != null, $"{nameof(UIController)} requires {nameof(_gameOverFinalScoreText)}.", this);
+            Debug.Assert(_bestScoreText != null, $"{nameof(UIController)} requires {nameof(_bestScoreText)}.", this);
+            Debug.Assert(_onScoreChanged != null, $"{nameof(UIController)} requires {nameof(_onScoreChanged)}.", this);
+            Debug.Assert(_onBestScoreChanged != null, $"{nameof(UIController)} requires {nameof(_onBestScoreChanged)}.", this);
+            Debug.Assert(_hudCoinsText != null, $"{nameof(UIController)} requires {nameof(_hudCoinsText)}.", this);
+            Debug.Assert(_gameOverTotalCoinsText != null, $"{nameof(UIController)} requires {nameof(_gameOverTotalCoinsText)}.", this);
+            Debug.Assert(_onCoinsChanged != null, $"{nameof(UIController)} requires {nameof(_onCoinsChanged)}.", this);
+            Debug.Assert(_onSessionCoinsChanged != null, $"{nameof(UIController)} requires {nameof(_onSessionCoinsChanged)}.", this);
         }
 
         private void OnEnable()
@@ -58,6 +105,10 @@ namespace ZigZag.Runtime.UI
             if (_onGameStarted != null) _onGameStarted.Register(HandleGameStarted);
             if (_onGameOver != null) _onGameOver.Register(HandleGameOver);
             if (_onGameReset != null) _onGameReset.Register(HandleGameReset);
+            if (_onScoreChanged != null) _onScoreChanged.Register(HandleScoreChanged);
+            if (_onBestScoreChanged != null) _onBestScoreChanged.Register(HandleBestScoreChanged);
+            if (_onCoinsChanged != null) _onCoinsChanged.Register(HandleCoinsChanged);
+            if (_onSessionCoinsChanged != null) _onSessionCoinsChanged.Register(HandleSessionCoinsChanged);
         }
 
         private void OnDisable()
@@ -65,6 +116,10 @@ namespace ZigZag.Runtime.UI
             if (_onGameStarted != null) _onGameStarted.Unregister(HandleGameStarted);
             if (_onGameOver != null) _onGameOver.Unregister(HandleGameOver);
             if (_onGameReset != null) _onGameReset.Unregister(HandleGameReset);
+            if (_onScoreChanged != null) _onScoreChanged.Unregister(HandleScoreChanged);
+            if (_onBestScoreChanged != null) _onBestScoreChanged.Unregister(HandleBestScoreChanged);
+            if (_onCoinsChanged != null) _onCoinsChanged.Unregister(HandleCoinsChanged);
+            if (_onSessionCoinsChanged != null) _onSessionCoinsChanged.Unregister(HandleSessionCoinsChanged);
         }
 
         private void Start()
@@ -81,11 +136,63 @@ namespace ZigZag.Runtime.UI
             if (_onRetryRequested != null) _onRetryRequested.Raise();
         }
 
-        private void HandleGameStarted() => ShowHud();
+        private void HandleScoreChanged(int newScore)
+        {
+            if (_hudScoreText != null) _hudScoreText.text = $"Score: {newScore}";
+            if (_gameOverFinalScoreText != null) _gameOverFinalScoreText.text = $"Score: {newScore}";
+        }
 
-        private void HandleGameOver() => ShowGameOver();
+        private void HandleBestScoreChanged(int newBest)
+        {
+            bool wasNewRecord = newBest > _lastKnownBest;
+            _lastKnownBest = newBest;
+            if (_bestScoreText != null) _bestScoreText.text = $"Best: {newBest}";
 
-        private void HandleGameReset() => ShowMenu();
+            if (!wasNewRecord) return;
+            _newBestSeenInThisRun = true;
+
+            // If we got here AFTER HandleGameOver (one of the two valid orderings),
+            // the panel is already up; light the badge now.
+            if (_newRecordBadge != null && _gameOverPanel != null && _gameOverPanel.activeSelf)
+            {
+                _newRecordBadge.SetActive(true);
+            }
+        }
+
+        private void HandleCoinsChanged(int totalCoins)
+        {
+            if (_gameOverTotalCoinsText != null) _gameOverTotalCoinsText.text = $"Coins: {totalCoins}";
+        }
+
+        private void HandleSessionCoinsChanged(int sessionCoins)
+        {
+            if (_hudCoinsText != null) _hudCoinsText.text = $"+{sessionCoins}";
+        }
+
+        private void HandleGameStarted()
+        {
+            _newBestSeenInThisRun = false;
+            if (_newRecordBadge != null) _newRecordBadge.SetActive(false);
+            ShowHud();
+        }
+
+        private void HandleGameOver()
+        {
+            ShowGameOver();
+            // If we got here AFTER HandleBestScoreChanged (the other valid ordering),
+            // the flag is already true; light the badge now that the panel is up.
+            if (_newBestSeenInThisRun && _newRecordBadge != null)
+            {
+                _newRecordBadge.SetActive(true);
+            }
+        }
+
+        private void HandleGameReset()
+        {
+            _newBestSeenInThisRun = false;
+            if (_newRecordBadge != null) _newRecordBadge.SetActive(false);
+            ShowMenu();
+        }
 
         private void ShowMenu() => SetPanels(menu: true, hud: false, gameOver: false);
 

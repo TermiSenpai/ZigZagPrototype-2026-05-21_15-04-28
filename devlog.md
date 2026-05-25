@@ -249,3 +249,146 @@ Reemplazar el `Path_Provisional` (cubos colocados a mano) por un generador que p
 ### Próxima iteración (planteamiento)
 
 4. Gemas (`Gem`, `GemSpawner`, `GemPool`) + `ScoreManager` con persistencia (`PlayerPrefs`). HUD muestra score real. GDD §14 día 4.
+
+---
+
+## 2026-05-22 — Iteración 4: gemas, score y persistencia
+
+### Objetivo
+
+Cerrar el loop con propósito: la bola recoge gemas, el score sube (gemas + distancia), el mejor record se persiste entre runs. GDD §14 día 4.
+
+### Lo que se ha implementado
+
+1. **`GameConfigSO` extendido** con tres bloques nuevos:
+   - `Gems`: `_gemSpawnProbability = 0.3` (por tramo), `_gemValue = 10`, `_gemHeightAboveCubeCenter = 3.2`.
+   - `Score`: `_distanceMultiplier = 1`.
+   - `Pooling`: `_gemPoolInitialSize = 20`.
+
+2. **Sub-feature `Gameplay/Collectibles/`** (mismo asmdef `ZigZag.Runtime.Gameplay`):
+   - `Gem.cs` — `MonoBehaviour` con `[RequireComponent(Collider, Rigidbody)]`. Trigger; al entrar la bola raises `SO_OnGemCollected(value)` y se devuelve al pool. Patrón `Initialize(value, pool)` para inyectar dependencias en cada `Get` del pool. `Awake` defensivo fuerza `isKinematic=true`, `useGravity=false`, `isTrigger=true` por si el prefab está mal configurado, y un `LogError + enabled=false` si falta el canal de evento (los `Debug.Assert` se compilan fuera en release).
+   - `GemPool.cs` — gemelo directo de `PlatformPool`. Mismo prewarm Get/Release en `Awake`, mismo `maxSize = 2× initialSize`.
+   - `GemSpawner.cs` — `TryPopulateSegment(Segment)` con dado contra `GemSpawnProbability`. RNG propio `System.Random` reseteado en `_onGameReset` (mismo seed que `PathGenerator`, instancias independientes). Mantiene `List<GameObject> _activeGems` para liberar gemas no recogidas al reset (TODO: prune cuando se introduzcan endurance runs).
+
+3. **Sub-feature `Gameplay/Scoring/`**:
+   - `ScoreCalculator.cs` — helper estático puro. `ComputeDistanceScore(ballPos, origin, forwardAxis, multiplier)` proyecta desplazamiento sobre `(-1,0,1)/√2` y devuelve `Mathf.FloorToInt(progress) * multiplier`, con clamp en cero para progreso negativo. Cubierto por 7 EditMode tests.
+   - `ScoreManager.cs` — `MonoBehaviour`. Acumula `_gemScore` (suma en `HandleGemCollected`) + `_distanceScore` (recomputado en `Update`). Solo raises `_onScoreChanged` cuando el total entero cambia, no cada frame. Persistencia: `PlayerPrefs.GetInt("BestScore", 0)` en `Awake`; `SetInt + Save` en `SaveBestIfHigher`, llamado al recibir `_onGameOver`. `HandleGameReset` también pasa por `RecomputeAndBroadcast` para no emitir un score-changed espurio si ya estaba a cero.
+
+4. **`PathGenerator` modificado** para invocar `_gemSpawner.TryPopulateSegment(_currentSegment)` justo antes de `FlipDirection + StartNewSegment`, es decir cuando un tramo alcanza su longitud objetivo. Campo opcional (sin assert) — si no hay spawner enganchado el path sigue generándose sin gemas. El último tramo de `InitializePath` no se finaliza por este camino y queda sin gema — known minor, se finaliza en cuanto la bola lo cruza.
+
+5. **`UIController` extendido** con tres `TextMeshProUGUI` (`_hudScoreText`, `_gameOverFinalScoreText`, `_bestScoreText`) y un GameObject opcional `_newRecordBadge`. Suscrito a `SO_OnScoreChanged` y `SO_OnBestScoreChanged`. El badge usa dos handlers cooperando (`HandleBestScoreChanged` + `HandleGameOver`) para resolverse independientemente del orden en que Unity dispare a los suscriptores de `_onGameOver` — `_newBestSeenInThisRun` se resetea en `HandleGameStarted`. Asmdef `ZigZag.Runtime.UI` añade referencia `Unity.TextMeshPro`.
+
+6. **`GameBootstrap` extendido** para validar `_scoreManager`, `_gemPool`, `_gemSpawner` en `Awake`. Sin cambios en asmdef (todos viven en `ZigZag.Runtime.Gameplay`).
+
+7. **Test harness EditMode estrenado** — primer `.asmdef` de tests del proyecto (`Assets/Code/Tests/EditMode/ZigZag.Tests.EditMode.asmdef`). 7 tests sobre `ScoreCalculator` (cero, progreso por -X, por +Z, diagonal, backwards-clamp, multiplier, multiplier cero).
+
+### Decisiones técnicas (mini-ADRs locales)
+
+- **Gem requiere `Rigidbody` kinematic, no la bola.** ADR-001 manda bola sin Rigidbody. Unity 2022.3 exige que al menos uno de los dos colliders tenga Rigidbody para disparar `OnTriggerEnter`. Solución: la gema lo lleva (`isKinematic=true, useGravity=false`) — la bola sigue siendo collider estático con transform que se mueve.
+- **Distancia medida por proyección sobre `GlobalForward`, no por `position.z`.** GDD §7.2 propuso `position.z` cuando el camino era diagonal `(1,0,1)`. Tras el rework a ejes mundo `-X/+Z` (iter 2 addendum), `position.z` ignoraría el progreso de los tramos `-X`. La proyección `Dot(pos - origin, (-1,0,1)/√2)` captura ambos correctamente.
+- **`ScoreCalculator` como `static class` puro.** Separar la aritmética de los side-effects (raises, PlayerPrefs) permite tests EditMode triviales y deja a `ScoreManager` reducido a 1-liners no testeables (los wires de eventos). YAGNI: no se introduce `IBestScoreStore` — `PlayerPrefs` con clave `"BestScore"` es la historia completa.
+- **`GemSpawner` con RNG propio.** Alternativa: pasar el `System.Random` de `PathGenerator`. Descartado porque acopla los dos sistemas. Cada uno tiene `System.Random` independiente seedeado con el mismo `_config.GenerationSeed`; las secuencias se consumen sin contaminarse y el run sigue siendo reproducible byte a byte por seed.
+- **Score se broadcastea solo cuando el entero cambia.** El proyectado `progress` es float pero el score es int; la mayoría de frames `Mathf.FloorToInt` no cruza umbral. Sin esta guarda el HUD reprintearía 60×/s.
+- **Badge de NEW RECORD resuelto sin asumir orden de suscriptores.** Unity no garantiza el orden en que los listeners de un `GameEventSO` se ejecutan. `ScoreManager.HandleGameOver` y `UIController.HandleGameOver` pueden dispararse en cualquier orden. La solución es un bool `_newBestSeenInThisRun` que el handler de `_onBestScoreChanged` marca cuando ve un récord nuevo, y dos puntos de activación del badge (uno en cada handler) que comprueban tanto el flag como `_gameOverPanel.activeSelf`. Funcionalmente correcto en ambos órdenes.
+
+### Pendiente — setup manual en Unity (todavía sin hacer)
+
+Cubierto íntegramente en `docs/superpowers/plans/2026-05-22-iteration-4-gems-and-score.md` Task 12. Resumen: crear `P_Gem.prefab`, añadir GameObjects `GemPool / GemSpawner / ScoreManager`, wire UI texts (HUD + GameOver + NewRecordBadge), wire `GameBootstrap` con las nuevas refs, etiquetar la bola con `Player`, fijar valores por defecto en `SO_GameConfig`. Hasta que se complete la wiring, el código compila pero la escena ejecuta el flujo iteración 3 (sin gemas, sin score real, HUD muestra "Score: 0" placeholder).
+
+### Próxima iteración (planteamiento)
+
+5. Powerup imán (`IPowerup`, `MagnetPowerup`, `PowerupManager`, `PowerupPool`). Atrae gemas en radio `R` durante `T` segundos. GDD §14 día 5. Demuestra que la arquitectura es extensible sin tocar `Gem`/`ScoreManager`.
+
+---
+
+## 2026-05-23 — Iteración 4.1: split gem coins ↔ distance score
+
+### Objetivo
+
+Separar conceptualmente y en el código las dos fuentes de "puntuación" combinadas en iteración 4: las gemas pasan a ser currency persistente preparada para una tienda futura; el `ScoreManager` queda como tracker de distancia puro. Reabre parcialmente la decisión cerrada del GDD §11 ("Sin sistema de monedas / shop fuera de scope") — la tienda sigue fuera, pero la infraestructura de wallet sí entra.
+
+### Lo que se ha implementado
+
+1. **Nueva sub-feature `Gameplay/Economy/`** con `CoinsWallet.cs`. `MonoBehaviour` único responsable de la PlayerPrefs key `"Coins"`. Suscrito a `SO_OnGemCollected` (suma a wallet + session) y `SO_OnGameReset` (resetea session, wallet intacta). Persistencia en cada pickup. Sin API `Spend` — la añade la iteración de tienda.
+
+2. **`ScoreManager` refactor**: borrado `_gemScore`, `_onGemCollected`, `HandleGemCollected`. `CurrentScore = _distanceScore` directo. Nombres públicos y PlayerPrefs key `"BestScore"` intactos por decisión del usuario; solo cambia la semántica (ahora es distancia pura).
+
+3. **`GameConfigSO._gemValue`** default `10 → 1`. Tooltip aclarado: "Coins awarded per gem collected. Powerups may temporarily override this multiplier at runtime."
+
+4. **`UIController` extendido** con `_hudCoinsText` y `_gameOverSessionCoinsText`. Dos canales nuevos: `SO_OnCoinsChanged` (HUD wallet) y `SO_OnSessionCoinsChanged` (panel GameOver `+N coins`).
+
+5. **`GameBootstrap`** añade ref + assert de `_coinsWallet`.
+
+6. **Docs**: GDD §5.5, §7.2 (separada en 7.2.1 score y 7.2.2 coins), §10.2, §10.3, §11; arquitectura §6.2, nuevo §7.17 `CoinsWallet` (GameBootstrap pasa a §7.18), nuevo ADR-013 "Wallet separada del score, persistida por pickup".
+
+### Decisiones tomadas en este split
+
+- **Sin renames** (instrucción explícita del usuario). `CurrentScore`, `BestScore`, `SO_OnScoreChanged` y la PlayerPrefs key `"BestScore"` se mantienen aunque ahora reflejen solo distancia. Hace que diffs en consumidores existentes sean nulos; el coste es que un revisor nuevo necesita leer el XML doc actualizado para entender la semántica.
+- **Persistencia por pickup, no por GameOver.** `PlayerPrefs.SetInt + Save` es barato (microsegundos por escritura) y un cierre brusco a media run no debe robarle coins al jugador. Para `BestScore` la decisión opuesta (escribir solo en GameOver) sigue siendo correcta — un score parcial no tiene valor.
+- **1 gema = 1 moneda como default tunable.** Powerups futuros podrán multiplicarlo temporalmente. Diseño aplazado al primer powerup que lo necesite — el path sugerido (en future considerations del spec) es que `GemSpawner` consulte un servicio de modificadores en lugar de leer `_config.GemValue` raw.
+- **No se migra la PlayerPrefs key `"BestScore"`.** Valores pre-iteración pueden contener `distancia + gemas`. Sin jugadores reales, no merece código de migración. Manual reset desde `Edit → Clear All PlayerPrefs` si se quiere baseline limpio.
+- **Sin tests nuevos para `CoinsWallet`.** Es `+=` + `PlayerPrefs.SetInt` sin invariantes. Cuando aparezca `TrySpend(int amount)` con guard de fondos, ese sí merece tests EditMode.
+
+### Pendiente — setup manual en Unity
+
+1. **Crear 2 SO de eventos** en `Assets/Settings/Events/`:
+   - `SO_OnCoinsChanged.asset` (IntGameEventSO).
+   - `SO_OnSessionCoinsChanged.asset` (IntGameEventSO).
+2. **GameObject `CoinsWallet`** en escena con el componente nuevo. Slots: `_onGemCollected` (existente `SO_OnGemCollected`), `_onGameReset` (existente), los 2 outbound SOs nuevos.
+3. **Canvas HUD**: añadir `TextMeshProUGUI` `Coins: 0` en una esquina contraria al score (ej. inferior izquierda).
+4. **Canvas GameOver**: añadir `TextMeshProUGUI` `+0 coins` debajo del score final.
+5. **`UIController`**: arrastrar los 2 TMP nuevos + los 2 SOs nuevos a sus slots.
+6. **`GameBootstrap`**: arrastrar el GameObject `CoinsWallet` al nuevo slot.
+7. **`SO_GameConfig.asset`**: cambiar `_gemValue` de 10 a 1.
+
+### Próxima iteración (planteamiento)
+
+5. Powerup imán (`IPowerup`, `MagnetPowerup`, `PowerupManager`, `PowerupPool`). Atrae gemas en radio `R` durante `T` segundos. GDD §14 día 5.
+
+Eventual: powerup multiplicador de coins (atomic con el imán o separado). Diseño aplazado hasta que se necesite — ver future considerations del spec de iteración 4.1.
+
+### Addendum (mismo día, post-wiring)
+
+Swap semántico HUD ↔ GameOver tras playtest:
+
+- **HUD**: `+{sessionCoins}` (coins ganadas en la run actual). Reseteo automático en cada Retry vía `SO_OnSessionCoinsChanged.Raise(0)` que `CoinsWallet.HandleGameReset` ya disparaba.
+- **GameOver**: `Coins: {totalCoins}` (wallet total persistente, lo que el jugador "tiene en el bolsillo" para una futura tienda).
+
+Razón: el HUD muestra progreso de la run en curso (motivación inmediata); el GameOver es el lugar donde tiene sentido leer el balance acumulado (preview de lo que podrá gastarse). El reparto inicial estaba al revés y se notaba: durante la partida no necesitas ver el total persistente, ya que no puedes gastarlo todavía.
+
+Cambios de código (commit aparte): `UIController._gameOverSessionCoinsText` → `_gameOverTotalCoinsText` (con `[FormerlySerializedAs]` para no romper el wire de escena ya hecho); swap de a qué TMP escribe cada handler. Spec §4.4, §5, §6 y nuevo §12 actualizados.
+
+---
+
+## 2026-05-24 — Iteración 4.2: cámara solo-forward
+
+### Objetivo
+
+Corregir el seguimiento de cámara para que avance **solo** a lo largo del eje global forward `(-1, 0, 1)/√2`, reproduciendo el comportamiento del ZigZag original: la cámara sube en pantalla, la bola serpentea lateralmente sobre ella. La implementación previa seguía X y Z del target por separado, lo que mantenía la bola centrada y eliminaba la oscilación visual.
+
+### Lo que se ha implementado
+
+1. **`CameraFollowMath`** (`Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollowMath.cs`)
+   Helper estático puro. `ComputeDesiredPosition(cameraOrigin, targetOrigin, targetCurrent, forwardAxis, lockedY)` proyecta el delta del target sobre el eje forward y devuelve la posición deseada (con Y bloqueada). Sin Unity lifecycle, testeable en EditMode igual que `ScoreCalculator`.
+
+2. **`CameraFollowMathTests`** (`Assets/Code/Tests/EditMode/Gameplay/CameraSystem/CameraFollowMathTests.cs`)
+   Siete tests: target estático, movimiento +Z puro, movimiento -X puro, movimiento perpendicular (debe dar cero), diagonal pura, caída en Y (no debe afectar XZ), y verificación de que `lockedY` sobrescribe `cameraOrigin.y`.
+
+3. **`CameraFollow` refactor** (`Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollow.cs`)
+   `_horizontalOffset` reemplazado por `_cameraOrigin` + `_targetOrigin`. `LateUpdate` delega en `CameraFollowMath` y aplica `SmoothDamp` hacia el resultado. Constante `GlobalForward = (-1, 0, 1).normalized` local al archivo (duplicada con `PathGenerator` deliberadamente; deduplicar es otra iteración).
+
+### Decisiones tomadas durante la implementación
+
+- **No clamp del progreso forward.** Si el target retrocede en forward (no ocurre en gameplay normal — solo al recapturar origins en `SetTarget`), la matemática lo soporta sin caso especial.
+- **`GlobalForward` no se mueve a `GameConfigSO`.** Estaría bien tener única fuente de verdad, pero arrastra a `PathGenerator` y `ScoreManager` al refactor. Fuera de alcance de esta iteración.
+- **Sin cambio en `orthographicSize`.** El cambio puede revelar drift lateral visible; si lo hace, se trata como tuning aparte, no se mete en el mismo commit que el cambio de cámara.
+
+### ADR
+
+- **ADR-014** añadido: "Cámara avanza solo en el eje global forward". Ver `zigzag_architecture.md`.
+- **ADR-007** actualizado con cross-reference a ADR-014.
+
+### Pendiente
+
+- Tuning de `orthographicSize` si la verificación manual lo justifica.
+- (Largo plazo) Mover `GlobalForward` a `GameConfigSO` como única fuente de verdad compartida con `PathGenerator` y `ScoreManager`.

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using ZigZag.Runtime.Data;
 using ZigZag.Runtime.Events;
+using ZigZag.Runtime.Gameplay.Collectibles;
 
 namespace ZigZag.Runtime.Gameplay.World
 {
@@ -38,6 +39,9 @@ namespace ZigZag.Runtime.Gameplay.World
         [SerializeField, Tooltip("Transform of the ball; the generator measures ahead/behind distances relative to this.")]
         private Transform _ballTransform;
 
+        [SerializeField, Tooltip("Optional. If wired, finalized segments are offered to this spawner for gem placement.")]
+        private GemSpawner _gemSpawner;
+
         [Header("Event Channels")]
         [SerializeField, Tooltip("Resumes generation when the run starts.")]
         private GameEventSO _onGameStarted;
@@ -51,10 +55,14 @@ namespace ZigZag.Runtime.Gameplay.World
         private static readonly Vector3 AlongNegativeX = new Vector3(-1f, 0f, 0f);
         private static readonly Vector3 AlongPositiveZ = new Vector3(0f, 0f, 1f);
         private static readonly Vector3 GlobalForward = new Vector3(-1f, 0f, 1f).normalized;
+        private static readonly Vector3 GlobalPerpendicular = new Vector3(1f, 0f, 1f).normalized;
 
         private readonly Queue<Segment> _segments = new Queue<Segment>(16);
         private System.Random _random;
         private Vector3 _currentDirection;
+        private Vector3 _runStartPosition;
+        private float _driftCapPositivePerp;
+        private float _driftCapNegativePerp;
         private Segment _currentSegment;
         private int _currentSegmentTargetLength;
         private Vector3 _lastCubePosition;
@@ -117,6 +125,42 @@ namespace ZigZag.Runtime.Gameplay.World
             InitializePath();
         }
 
+        /// <summary>
+        /// Coin-flips the run's starting cube + segment direction between the two
+        /// configured options. The pair is fixed: primary start with -X, alternate
+        /// start with +Z — they are mirror images across the global forward axis,
+        /// so distance scoring (which uses <see cref="GameConfigSO.PathStartPosition"/>
+        /// as its origin) sees the same forward projection either way.
+        /// Also assigns the asymmetric perpendicular drift caps: the side that the
+        /// starting direction pushes the path toward gets the larger cap, the
+        /// opposite side gets the smaller one — so the path opens up more on the
+        /// side it's heading into and stays tighter on the other.
+        /// </summary>
+        /// <remarks>
+        /// On the perpendicular axis <c>(1,0,1)/√2</c>: a -X step contributes
+        /// <c>-1/√2</c> (pushes -perp) and a +Z step contributes <c>+1/√2</c>
+        /// (pushes +perp). The pairing (start direction → "big-cap side") follows
+        /// directly from those signs.
+        /// </remarks>
+        private void PickRunStart()
+        {
+            bool useAlternate = _random.Next(2) == 1;
+            if (useAlternate)
+            {
+                _runStartPosition = _config.PathStartPositionAlternate;
+                _currentDirection = AlongPositiveZ;
+                _driftCapPositivePerp = _config.DriftCapAlongStartAxis;
+                _driftCapNegativePerp = _config.DriftCapAlongCrossAxis;
+            }
+            else
+            {
+                _runStartPosition = _config.PathStartPosition;
+                _currentDirection = AlongNegativeX;
+                _driftCapNegativePerp = _config.DriftCapAlongStartAxis;
+                _driftCapPositivePerp = _config.DriftCapAlongCrossAxis;
+            }
+        }
+
         private System.Random CreateRandom()
         {
             // Sentinel: seed == 0 → pick a fresh seed every run so each retry feels new.
@@ -132,7 +176,7 @@ namespace ZigZag.Runtime.Gameplay.World
         {
             if (_config == null || _pool == null) return;
 
-            _currentDirection = AlongNegativeX;
+            PickRunStart();
             StartNewSegment(isFirstSegment: true);
 
             int safety = InitializationSafetyLimit;
@@ -173,6 +217,14 @@ namespace ZigZag.Runtime.Gameplay.World
                 _segments.Dequeue();
                 ReleaseSegmentCubes(oldest);
             }
+
+            // Sweep any gems left behind by recycled cubes back to the pool. Done here
+            // (not inside the segment loop) so we run the gem check at most once per
+            // frame regardless of how many segments were dequeued.
+            if (_gemSpawner != null)
+            {
+                _gemSpawner.ReleaseGemsBehind(_ballTransform.position, GlobalForward, _config.BehindBuffer);
+            }
         }
 
         private void SpawnNextCubeOrStartNewSegment()
@@ -185,6 +237,9 @@ namespace ZigZag.Runtime.Gameplay.World
 
             if (_currentSegment.CubeCount >= _currentSegmentTargetLength)
             {
+                // Hand the just-finalized segment to the gem spawner before reassigning.
+                if (_gemSpawner != null) _gemSpawner.TryPopulateSegment(_currentSegment);
+
                 FlipDirection();
                 StartNewSegment(isFirstSegment: false);
                 return;
@@ -198,13 +253,46 @@ namespace ZigZag.Runtime.Gameplay.World
         {
             _currentSegment = new Segment(_currentDirection);
             _segments.Enqueue(_currentSegment);
-            _currentSegmentTargetLength = _random.Next(_config.SegmentMinLength, _config.SegmentMaxLength + 1);
 
             Vector3 firstCubePosition = isFirstSegment
-                ? _config.PathStartPosition
+                ? _runStartPosition
                 : _lastCubePosition + GetSpawnStep(_currentDirection);
 
+            _currentSegmentTargetLength = PickSegmentLength(firstCubePosition);
+
             SpawnCubeAt(firstCubePosition);
+        }
+
+        /// <summary>
+        /// Picks a length for the segment about to be spawned, shrinking it so the
+        /// last cube's perpendicular drift stays within the cap on the side this
+        /// segment is heading toward (<see cref="_driftCapPositivePerp"/> if it pushes
+        /// +perp, <see cref="_driftCapNegativePerp"/> if it pushes -perp). The two
+        /// caps are asymmetric and swap based on the run's starting side — see
+        /// <see cref="PickRunStart"/> — so the path zigzags wider on the side the
+        /// starting direction heads into and tighter on the other.
+        /// </summary>
+        private int PickSegmentLength(Vector3 segmentStartPosition)
+        {
+            int minLen = _config.SegmentMinLength;
+            int maxLen = _config.SegmentMaxLength;
+            int desired = _random.Next(minLen, maxLen + 1);
+
+            Vector3 step = GetSpawnStep(_currentDirection);
+            float perCubeLateral = Vector3.Dot(step, GlobalPerpendicular);
+            if (Mathf.Approximately(perCubeLateral, 0f)) return desired;
+
+            bool driftsPositive = perCubeLateral > 0f;
+            float cap = driftsPositive ? _driftCapPositivePerp : _driftCapNegativePerp;
+            if (cap <= 0f) return desired;
+
+            float startLateral = Vector3.Dot(segmentStartPosition - _runStartPosition, GlobalPerpendicular);
+            float signedBound = driftsPositive ? cap : -cap;
+            float headroom = driftsPositive ? (signedBound - startLateral) : (startLateral - signedBound);
+            if (headroom <= 0f) return minLen;
+
+            int allowed = 1 + Mathf.FloorToInt(headroom / Mathf.Abs(perCubeLateral));
+            return Mathf.Clamp(Mathf.Min(desired, allowed), minLen, maxLen);
         }
 
         private void SpawnCubeAt(Vector3 position)
