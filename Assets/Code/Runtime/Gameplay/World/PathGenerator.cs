@@ -61,6 +61,8 @@ namespace ZigZag.Runtime.Gameplay.World
         private System.Random _random;
         private Vector3 _currentDirection;
         private Vector3 _runStartPosition;
+        private float _driftCapPositivePerp;
+        private float _driftCapNegativePerp;
         private Segment _currentSegment;
         private int _currentSegmentTargetLength;
         private Vector3 _lastCubePosition;
@@ -129,7 +131,17 @@ namespace ZigZag.Runtime.Gameplay.World
         /// start with +Z — they are mirror images across the global forward axis,
         /// so distance scoring (which uses <see cref="GameConfigSO.PathStartPosition"/>
         /// as its origin) sees the same forward projection either way.
+        /// Also assigns the asymmetric perpendicular drift caps: the side that the
+        /// starting direction pushes the path toward gets the larger cap, the
+        /// opposite side gets the smaller one — so the path opens up more on the
+        /// side it's heading into and stays tighter on the other.
         /// </summary>
+        /// <remarks>
+        /// On the perpendicular axis <c>(1,0,1)/√2</c>: a -X step contributes
+        /// <c>-1/√2</c> (pushes -perp) and a +Z step contributes <c>+1/√2</c>
+        /// (pushes +perp). The pairing (start direction → "big-cap side") follows
+        /// directly from those signs.
+        /// </remarks>
         private void PickRunStart()
         {
             bool useAlternate = _random.Next(2) == 1;
@@ -137,11 +149,15 @@ namespace ZigZag.Runtime.Gameplay.World
             {
                 _runStartPosition = _config.PathStartPositionAlternate;
                 _currentDirection = AlongPositiveZ;
+                _driftCapPositivePerp = _config.DriftCapAlongStartAxis;
+                _driftCapNegativePerp = _config.DriftCapAlongCrossAxis;
             }
             else
             {
                 _runStartPosition = _config.PathStartPosition;
                 _currentDirection = AlongNegativeX;
+                _driftCapNegativePerp = _config.DriftCapAlongStartAxis;
+                _driftCapPositivePerp = _config.DriftCapAlongCrossAxis;
             }
         }
 
@@ -248,11 +264,13 @@ namespace ZigZag.Runtime.Gameplay.World
         }
 
         /// <summary>
-        /// Picks a length for the segment about to be spawned, optionally shrinking it
-        /// so the lateral position of its last cube stays within
-        /// <see cref="GameConfigSO.MaxLateralDrift"/> of the path origin. Without this
-        /// bias the path would random-walk perpendicularly to the camera's forward axis
-        /// and eventually exceed the visible frustum.
+        /// Picks a length for the segment about to be spawned, shrinking it so the
+        /// last cube's perpendicular drift stays within the cap on the side this
+        /// segment is heading toward (<see cref="_driftCapPositivePerp"/> if it pushes
+        /// +perp, <see cref="_driftCapNegativePerp"/> if it pushes -perp). The two
+        /// caps are asymmetric and swap based on the run's starting side — see
+        /// <see cref="PickRunStart"/> — so the path zigzags wider on the side the
+        /// starting direction heads into and tighter on the other.
         /// </summary>
         private int PickSegmentLength(Vector3 segmentStartPosition)
         {
@@ -260,22 +278,20 @@ namespace ZigZag.Runtime.Gameplay.World
             int maxLen = _config.SegmentMaxLength;
             int desired = _random.Next(minLen, maxLen + 1);
 
-            float cap = _config.MaxLateralDrift;
+            Vector3 step = GetSpawnStep(_currentDirection);
+            float perCubeLateral = Vector3.Dot(step, GlobalPerpendicular);
+            if (Mathf.Approximately(perCubeLateral, 0f)) return desired;
+
+            bool driftsPositive = perCubeLateral > 0f;
+            float cap = driftsPositive ? _driftCapPositivePerp : _driftCapNegativePerp;
             if (cap <= 0f) return desired;
 
             float startLateral = Vector3.Dot(segmentStartPosition - _runStartPosition, GlobalPerpendicular);
-            float perCubeLateral = Vector3.Dot(GetSpawnStep(_currentDirection), GlobalPerpendicular);
-
-            // Direction has no perpendicular component (parallel to forward); drift can't grow.
-            if (Mathf.Approximately(perCubeLateral, 0f)) return desired;
-
-            bool pushesAwayFromCenter = Mathf.Sign(perCubeLateral) == Mathf.Sign(startLateral) || Mathf.Approximately(startLateral, 0f);
-            if (!pushesAwayFromCenter) return desired;
-
-            float headroom = cap - Mathf.Abs(startLateral);
+            float signedBound = driftsPositive ? cap : -cap;
+            float headroom = driftsPositive ? (signedBound - startLateral) : (startLateral - signedBound);
             if (headroom <= 0f) return minLen;
 
-            int allowed = Mathf.FloorToInt(headroom / Mathf.Abs(perCubeLateral));
+            int allowed = 1 + Mathf.FloorToInt(headroom / Mathf.Abs(perCubeLateral));
             return Mathf.Clamp(Mathf.Min(desired, allowed), minLen, maxLen);
         }
 

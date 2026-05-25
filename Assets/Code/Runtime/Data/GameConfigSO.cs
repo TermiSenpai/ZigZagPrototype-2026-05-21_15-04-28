@@ -58,8 +58,11 @@ namespace ZigZag.Runtime.Data
         [SerializeField, Tooltip("Maximum cubes per segment (inclusive). After this many cubes the path direction must flip.")]
         private int _segmentMaxLength = 5;
 
-        [SerializeField, Tooltip("Soft cap on how far the path may drift from the path-start position along the axis perpendicular to global forward (i.e., screen-horizontal under the isometric camera). When a new segment would push the lateral position past this cap, the generator shrinks the segment length so the overshoot is bounded to one cube. Set to 0 to disable the bias and let the random walk run unconstrained.")]
-        private float _maxLateralDrift = 2f;
+        [SerializeField, Tooltip("Soft cap (in world units) on how far the path may drift perpendicular to global forward on the side the starting direction pushes the path toward. Larger than the cross-side cap so the zigzag opens up wider on the side it's heading into. Set to 0 to disable the bias on this side.")]
+        private float _driftCapAlongStartAxis = 4f;
+
+        [SerializeField, Tooltip("Soft cap on perpendicular drift on the side opposite to the one the starting direction pushes toward. Smaller than the start-side cap to keep the zigzag visually contained on the trailing side. Set to 0 to disable the bias on this side.")]
+        private float _driftCapAlongCrossAxis = 3f;
 
         [SerializeField, Tooltip("Distance ahead of the ball, measured along the global forward axis (-X +Z diagonal), that the generator keeps populated.")]
         private float _aheadBuffer = 30f;
@@ -104,7 +107,8 @@ namespace ZigZag.Runtime.Data
         public Vector3 CubeSize => _cubeSize;
         public int SegmentMinLength => _segmentMinLength;
         public int SegmentMaxLength => _segmentMaxLength;
-        public float MaxLateralDrift => _maxLateralDrift;
+        public float DriftCapAlongStartAxis => _driftCapAlongStartAxis;
+        public float DriftCapAlongCrossAxis => _driftCapAlongCrossAxis;
         public float AheadBuffer => _aheadBuffer;
         public float BehindBuffer => _behindBuffer;
         public int GenerationSeed => _generationSeed;
@@ -126,7 +130,8 @@ namespace ZigZag.Runtime.Data
             if (_cameraFollowSmoothTime < 0f) _cameraFollowSmoothTime = 0f;
             if (_segmentMinLength < 1) _segmentMinLength = 1;
             if (_segmentMaxLength < _segmentMinLength) _segmentMaxLength = _segmentMinLength;
-            if (_maxLateralDrift < 0f) _maxLateralDrift = 0f;
+            if (_driftCapAlongStartAxis < 0f) _driftCapAlongStartAxis = 0f;
+            if (_driftCapAlongCrossAxis < 0f) _driftCapAlongCrossAxis = 0f;
             if (_aheadBuffer < 1f) _aheadBuffer = 1f;
             if (_behindBuffer < 0f) _behindBuffer = 0f;
             if (_platformPoolInitialSize < 1) _platformPoolInitialSize = 1;

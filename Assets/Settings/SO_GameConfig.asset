@@ -27,7 +27,8 @@ MonoBehaviour:
   _cubeSize: {x: 1, y: 5, z: 1}
   _segmentMinLength: 1
   _segmentMaxLength: 5
-  _maxLateralDrift: 3
+  _driftCapAlongStartAxis: 3
+  _driftCapAlongCrossAxis: 2
   _aheadBuffer: 30
   _behindBuffer: 10
   _generationSeed: 0
