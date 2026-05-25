@@ -20,7 +20,14 @@ namespace ZigZag.Tests.EditMode.Cosmetics
         [TearDown]
         public void TearDown()
         {
-            Object.DestroyImmediate(_catalog);
+            if (_catalog != null)
+            {
+                for (int i = 0; i < _catalog.Skins.Count; i++)
+                {
+                    if (_catalog.Skins[i] != null) Object.DestroyImmediate(_catalog.Skins[i]);
+                }
+                Object.DestroyImmediate(_catalog);
+            }
         }
 
         [Test]
