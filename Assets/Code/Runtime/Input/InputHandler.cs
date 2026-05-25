@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using ZigZag.Runtime.Events;
 using UnityInput = UnityEngine.Input;
 
@@ -15,8 +16,12 @@ namespace ZigZag.Runtime.Input
     /// <c>UnityEngine.Input</c> over the new Input System for this prototype. Wrapping
     /// the call inside this handler keeps a future migration to a one-file change.
     ///
-    /// The shop overlay suspends tap routing via <see cref="_onShopOpened"/>/
-    /// <see cref="_onShopClosed"/> so a tap inside the shop UI does not start a run.
+    /// Two complementary suppression mechanisms keep UI clicks from doubling as
+    /// game taps: <see cref="_onShopOpened"/>/<see cref="_onShopClosed"/> blocks
+    /// ALL input (mouse + keyboard) while the shop overlay is up, and a
+    /// per-click <see cref="EventSystem.IsPointerOverGameObject()"/> check skips
+    /// taps that land on a UI raycast target (Menu's SHOP button, Retry button,
+    /// any future UI widget shown over gameplay).
     /// </remarks>
     [DisallowMultipleComponent]
     public sealed class InputHandler : MonoBehaviour
@@ -50,7 +55,18 @@ namespace ZigZag.Runtime.Input
         private void Update()
         {
             if (_isBlocked) return;
-            if (UnityInput.GetMouseButtonDown(0) || UnityInput.GetKeyDown(KeyCode.Space))
+
+            if (UnityInput.GetMouseButtonDown(0))
+            {
+                // The same mouse-down also drives Unity UI Buttons. If the click landed on a
+                // UI element with a raycast target, it belongs to the UI and should not also
+                // start the run. Space is unaffected — it never has a pointer position.
+                if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject()) return;
+                OnTapped?.Invoke();
+                return;
+            }
+
+            if (UnityInput.GetKeyDown(KeyCode.Space))
             {
                 OnTapped?.Invoke();
             }
