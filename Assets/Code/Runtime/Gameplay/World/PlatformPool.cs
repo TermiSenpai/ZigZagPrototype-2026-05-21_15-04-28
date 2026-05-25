@@ -27,11 +27,25 @@ namespace ZigZag.Runtime.Gameplay.World
 
         private ObjectPool<GameObject> _pool;
 
+        /// <summary>
+        /// Runtime-instanced copy of the platform prefab's material. Mutate this (not the shared asset)
+        /// to recolor the entire pool. Lifetime: owned by this pool; destroyed in OnDestroy.
+        /// </summary>
+        public Material RuntimeMaterial { get; private set; }
+
         private void Awake()
         {
             Debug.Assert(_platformPrefab != null, $"{nameof(PlatformPool)} requires a platform prefab.", this);
             Debug.Assert(_config != null, $"{nameof(PlatformPool)} requires a {nameof(GameConfigSO)} reference.", this);
             if (_platformPrefab == null || _config == null) return;
+
+            MeshRenderer prefabRenderer = _platformPrefab.GetComponent<MeshRenderer>();
+            if (prefabRenderer == null || prefabRenderer.sharedMaterial == null)
+            {
+                Debug.LogError($"{nameof(PlatformPool)}: platform prefab is missing a MeshRenderer or its material; cannot create runtime material.", this);
+                return;
+            }
+            RuntimeMaterial = new Material(prefabRenderer.sharedMaterial) { name = $"{prefabRenderer.sharedMaterial.name} (Runtime)" };
 
             int capacity = _config.PlatformPoolInitialSize;
             _pool = new ObjectPool<GameObject>(
@@ -62,6 +76,13 @@ namespace ZigZag.Runtime.Gameplay.World
         private GameObject CreateInstance()
         {
             GameObject instance = Instantiate(_platformPrefab, transform);
+            MeshRenderer renderer = instance.GetComponent<MeshRenderer>();
+            if (renderer != null && RuntimeMaterial != null)
+            {
+                // sharedMaterial assignment — reading .material elsewhere on a pooled cube
+                // would silently clone RuntimeMaterial per-instance and leak it.
+                renderer.sharedMaterial = RuntimeMaterial;
+            }
             instance.SetActive(false);
             return instance;
         }
@@ -90,6 +111,15 @@ namespace ZigZag.Runtime.Gameplay.World
             GameObject[] preheated = new GameObject[count];
             for (int i = 0; i < count; i++) preheated[i] = _pool.Get();
             for (int i = 0; i < count; i++) _pool.Release(preheated[i]);
+        }
+
+        private void OnDestroy()
+        {
+            if (RuntimeMaterial != null)
+            {
+                Destroy(RuntimeMaterial);
+                RuntimeMaterial = null;
+            }
         }
     }
 }

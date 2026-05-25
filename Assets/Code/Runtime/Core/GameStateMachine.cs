@@ -1,4 +1,6 @@
+using System.Collections;
 using UnityEngine;
+using ZigZag.Runtime.Data;
 using ZigZag.Runtime.Events;
 using ZigZag.Runtime.Gameplay.Player;
 using ZigZag.Runtime.Input;
@@ -29,6 +31,9 @@ namespace ZigZag.Runtime.Core
         [SerializeField, Tooltip("Position the ball is teleported to on boot and on retry.")]
         private Transform _ballSpawnPoint;
 
+        [SerializeField, Tooltip("Tunable values; only FreezeFrameOnDeathSeconds is read here.")]
+        private GameConfigSO _config;
+
         [Header("Event Channels (Outbound)")]
         [SerializeField, Tooltip("Raised when a run starts (Menu → Playing or Retry → Playing).")]
         private GameEventSO _onGameStarted;
@@ -45,11 +50,14 @@ namespace ZigZag.Runtime.Core
 
         public GameState CurrentState { get; private set; } = GameState.Menu;
 
+        private Coroutine _endGameRoutine;
+
         private void Awake()
         {
             Debug.Assert(_inputHandler != null, $"{nameof(GameStateMachine)} requires an {nameof(InputHandler)} reference.", this);
             Debug.Assert(_ball != null, $"{nameof(GameStateMachine)} requires a {nameof(BallController)} reference.", this);
             Debug.Assert(_ballSpawnPoint != null, $"{nameof(GameStateMachine)} requires a spawn point Transform.", this);
+            Debug.Assert(_config != null, $"{nameof(GameStateMachine)} requires a {nameof(GameConfigSO)} reference.", this);
             Debug.Assert(_onGameStarted != null, $"{nameof(GameStateMachine)} requires an {nameof(_onGameStarted)} channel.", this);
             Debug.Assert(_onGameOver != null, $"{nameof(GameStateMachine)} requires an {nameof(_onGameOver)} channel.", this);
             Debug.Assert(_onGameReset != null, $"{nameof(GameStateMachine)} requires an {nameof(_onGameReset)} channel.", this);
@@ -68,6 +76,14 @@ namespace ZigZag.Runtime.Core
             if (_inputHandler != null) _inputHandler.OnTapped -= HandleTap;
             if (_ball != null) _ball.OnFell -= HandleBallFell;
             if (_onRetryRequested != null) _onRetryRequested.Unregister(HandleRetryRequested);
+
+            if (_endGameRoutine != null)
+            {
+                StopCoroutine(_endGameRoutine);
+                _endGameRoutine = null;
+            }
+            // Defensive: never leave the world frozen if the scene unloads mid-hitstop.
+            if (!Mathf.Approximately(Time.timeScale, 1f)) Time.timeScale = 1f;
         }
 
         private void Start()
@@ -98,7 +114,24 @@ namespace ZigZag.Runtime.Core
         private void HandleBallFell()
         {
             if (CurrentState != GameState.Playing) return;
-            EndGame();
+            // Transition synchronously so a second OnFell within the same frame
+            // is ignored by the guard above; the freeze + raise happen on the
+            // coroutine that follows.
+            CurrentState = GameState.GameOver;
+            _endGameRoutine = StartCoroutine(EndGameRoutine());
+        }
+
+        private IEnumerator EndGameRoutine()
+        {
+            float duration = _config != null ? _config.FreezeFrameOnDeathSeconds : 0f;
+            if (duration > 0f)
+            {
+                Time.timeScale = 0f;
+                yield return new WaitForSecondsRealtime(duration);
+                Time.timeScale = 1f;
+            }
+            _onGameOver.Raise();
+            _endGameRoutine = null;
         }
 
         private void HandleRetryRequested()
@@ -113,12 +146,6 @@ namespace ZigZag.Runtime.Core
             CurrentState = GameState.Playing;
             if (_ball != null) _ball.StartMoving();
             _onGameStarted.Raise();
-        }
-
-        private void EndGame()
-        {
-            CurrentState = GameState.GameOver;
-            _onGameOver.Raise();
         }
 
         private void ResetForRetry()

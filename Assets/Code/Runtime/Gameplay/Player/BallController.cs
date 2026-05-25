@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using ZigZag.Runtime.Data;
+using ZigZag.Runtime.Events;
 
 namespace ZigZag.Runtime.Gameplay.Player
 {
@@ -34,6 +35,14 @@ namespace ZigZag.Runtime.Gameplay.Player
         [SerializeField, Tooltip("Tunable values for speed, acceleration, fall and ground check.")]
         private GameConfigSO _config;
 
+        [Header("Event Channels (Outbound)")]
+        [SerializeField, Tooltip("Optional SO channel raised whenever the ball flips axis. Presentation systems (audio, VFX) listen to it without depending on this MonoBehaviour.")]
+        private GameEventSO _onDirectionChangedChannel;
+
+        [Header("Visual Rolling")]
+        [SerializeField, Tooltip("Visual radius used to convert linear speed into angular speed (no-slip rolling). Match the rendered sphere's radius — default 0.5 fits a Unity sphere primitive at scale 1.")]
+        private float _ballRadius = 0.5f;
+
         public event Action<Vector3> OnDirectionChanged;
         public event Action OnFell;
 
@@ -47,6 +56,7 @@ namespace ZigZag.Runtime.Gameplay.Player
 
         private bool _isOnXAxis;
         private bool _hasFallen;
+        private Vector3 _rollAxis;
 
         private void Awake()
         {
@@ -54,6 +64,7 @@ namespace ZigZag.Runtime.Gameplay.Player
 
             CurrentDirection = AlongNegativeX;
             _isOnXAxis = true;
+            _rollAxis = Vector3.Cross(Vector3.up, CurrentDirection);
             CurrentSpeed = _config != null ? _config.InitialSpeed : 0f;
             IsGrounded = true;
         }
@@ -83,6 +94,12 @@ namespace ZigZag.Runtime.Gameplay.Player
                     OnFell?.Invoke();
                 }
             }
+
+            // No-slip rolling visual: ω = v/r (rad/s) around the axis perpendicular
+            // to motion in the ground plane. Applied last so it picks up the same
+            // CurrentSpeed used for translation this frame.
+            float rollDegrees = CurrentSpeed * deltaTime * Mathf.Rad2Deg / _ballRadius;
+            transform.Rotate(_rollAxis, rollDegrees, Space.World);
         }
 
         /// <summary>Begins forward motion. Safe to call multiple times.</summary>
@@ -104,12 +121,14 @@ namespace ZigZag.Runtime.Gameplay.Player
         public void ResetTo(Vector3 position)
         {
             transform.position = position;
+            transform.rotation = Quaternion.identity;
             CurrentDirection = AlongNegativeX;
             CurrentSpeed = _config != null ? _config.InitialSpeed : 0f;
             IsMoving = false;
             IsGrounded = true;
             _isOnXAxis = true;
             _hasFallen = false;
+            _rollAxis = Vector3.Cross(Vector3.up, CurrentDirection);
         }
 
         /// <summary>
@@ -123,7 +142,9 @@ namespace ZigZag.Runtime.Gameplay.Player
 
             _isOnXAxis = !_isOnXAxis;
             CurrentDirection = _isOnXAxis ? AlongNegativeX : AlongPositiveZ;
+            _rollAxis = Vector3.Cross(Vector3.up, CurrentDirection);
             OnDirectionChanged?.Invoke(CurrentDirection);
+            if (_onDirectionChangedChannel != null) _onDirectionChangedChannel.Raise();
         }
 
         private void UpdateGrounded()
@@ -137,6 +158,11 @@ namespace ZigZag.Runtime.Gameplay.Player
         }
 
 #if UNITY_EDITOR
+        private void OnValidate()
+        {
+            if (_ballRadius < 0.01f) _ballRadius = 0.01f;
+        }
+
         private void OnDrawGizmosSelected()
         {
             if (_config == null) return;

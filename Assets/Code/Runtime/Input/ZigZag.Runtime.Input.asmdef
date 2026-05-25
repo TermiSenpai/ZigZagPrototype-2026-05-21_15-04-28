@@ -1,7 +1,9 @@
 {
     "name": "ZigZag.Runtime.Input",
     "rootNamespace": "ZigZag.Runtime.Input",
-    "references": [],
+    "references": [
+        "ZigZag.Runtime.Events"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

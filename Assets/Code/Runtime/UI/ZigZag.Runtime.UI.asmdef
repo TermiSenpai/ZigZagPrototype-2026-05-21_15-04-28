@@ -3,6 +3,7 @@
     "rootNamespace": "ZigZag.Runtime.UI",
     "references": [
         "ZigZag.Runtime.Events",
+        "ZigZag.Runtime.Gameplay",
         "Unity.TextMeshPro"
     ],
     "includePlatforms": [],

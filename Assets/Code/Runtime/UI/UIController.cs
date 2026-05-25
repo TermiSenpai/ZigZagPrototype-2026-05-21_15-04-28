@@ -2,6 +2,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.Serialization;
 using ZigZag.Runtime.Events;
+using ZigZag.Runtime.UI.Shop;
 
 namespace ZigZag.Runtime.UI
 {
@@ -76,6 +77,10 @@ namespace ZigZag.Runtime.UI
         [Header("Event Channels (Outbound)")]
         [SerializeField, Tooltip("Raised when the Retry button is clicked. The state machine listens.")]
         private GameEventSO _onRetryRequested;
+
+        [Header("Shop")]
+        [SerializeField, Tooltip("Shop panel. UIController only triggers OpenShop on the SHOP button click.")]
+        private ShopPanel _shopPanel;
 
         private int _lastKnownBest;
         private bool _newBestSeenInThisRun;
@@ -205,6 +210,15 @@ namespace ZigZag.Runtime.UI
             if (_menuPanel != null) _menuPanel.SetActive(menu);
             if (_hudPanel != null) _hudPanel.SetActive(hud);
             if (_gameOverPanel != null) _gameOverPanel.SetActive(gameOver);
+        }
+
+        /// <summary>
+        /// Invoked by the SHOP button's <c>onClick</c> in the Menu panel.
+        /// Forwards the request to <see cref="ShopPanel.OpenShop"/>.
+        /// </summary>
+        public void OnShopButtonClicked()
+        {
+            if (_shopPanel != null) _shopPanel.OpenShop();
         }
     }
 }

@@ -14,14 +14,10 @@ namespace ZigZag.Runtime.Gameplay.Economy
     /// (coins earned in the current run, reset on <c>SO_OnGameReset</c> so the
     /// GameOver panel can display "+N coins" for the just-ended run).
     ///
-    /// Persistence cadence: <c>PlayerPrefs.SetInt + Save</c> on every pickup.
-    /// A run-mid crash (alt-F4, editor stop) must not steal coins from the
-    /// player — they are currency, not a volatile score.
-    ///
-    /// There is intentionally no <c>Spend(int)</c> API. The shop / item system
-    /// that will consume coins is out of scope for this sprint; when it lands,
-    /// it adds the spend path with a fund-sufficient guard and raises
-    /// <see cref="_onCoinsChanged"/> in the same way as pickup.
+    /// Persistence cadence: <c>PlayerPrefs.SetInt + Save</c> on every pickup and
+    /// on every successful <see cref="TrySpend"/>. A run-mid crash (alt-F4,
+    /// editor stop) must not steal coins from the player — they are currency,
+    /// not a volatile score.
     /// </remarks>
     [DisallowMultipleComponent]
     public sealed class CoinsWallet : MonoBehaviour
@@ -94,6 +90,26 @@ namespace ZigZag.Runtime.Gameplay.Economy
             SessionCoins = 0;
             _onSessionCoinsChanged.Raise(SessionCoins);
             // TotalCoins intentionally not touched — wallet persists across runs.
+        }
+
+        /// <summary>
+        /// Attempts to deduct <paramref name="amount"/> from the persistent wallet.
+        /// Returns <c>true</c> on success (funds were sufficient, deduction persisted
+        /// and <see cref="_onCoinsChanged"/> raised). Returns <c>false</c> on
+        /// non-positive amount or insufficient funds; no state change occurred.
+        /// <see cref="SessionCoins"/> is intentionally untouched — spending is not a
+        /// run-time event.
+        /// </summary>
+        public bool TrySpend(int amount)
+        {
+            if (amount <= 0) return false;
+            if (TotalCoins < amount) return false;
+
+            TotalCoins -= amount;
+            PlayerPrefs.SetInt(CoinsPrefKey, TotalCoins);
+            PlayerPrefs.Save();
+            _onCoinsChanged.Raise(TotalCoins);
+            return true;
         }
     }
 }

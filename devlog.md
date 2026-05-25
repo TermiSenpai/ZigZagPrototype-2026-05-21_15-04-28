@@ -392,3 +392,86 @@ Corregir el seguimiento de cámara para que avance **solo** a lo largo del eje g
 
 - Tuning de `orthographicSize` si la verificación manual lo justifica.
 - (Largo plazo) Mover `GlobalForward` a `GameConfigSO` como única fuente de verdad compartida con `PathGenerator` y `ScoreManager`.
+
+---
+
+## 2026-05-25 — Iteración 6: audio + freeze frame al morir
+
+### Objetivo
+
+Primera tanda de polish funcional saltándose el powerup imán (decisión explícita de scope, ver memoria `project_scope_magnet_skipped.md`). Tres SFX enganchados por canales SO + hit-stop de 0.1 s en la muerte. Sin tocar particles ni trail — esos quedan para una iteración posterior si se pide.
+
+### Lo que se ha implementado
+
+1. **`GameConfigSO` extendido** con sección `Game Feel`:
+   - `_freezeFrameOnDeathSeconds = 0.1f` (tunable, 0 desactiva el efecto). Tooltip aclara que es `Time.timeScale = 0` real-time seconds y que la UI de GameOver aparece **después** del freeze.
+   - `OnValidate` clampa a no-negativos.
+
+2. **`BallController` outbound channel**:
+   - Nuevo `[SerializeField] private GameEventSO _onDirectionChangedChannel` (opcional, null-safe). Raise dentro de `FlipDirection` justo después del `event Action<Vector3>` C# existente.
+   - El `event Action<Vector3>` se mantiene — sigue siendo útil para listeners locales en el mismo asmdef (por ejemplo, un futuro `TrailRenderer` driver que necesite el vector concreto). El canal SO añadido es parameterless porque audio solo necesita "algo cambió".
+   - Asmdef `ZigZag.Runtime.Gameplay` ya referenciaba `Events`, no hace falta tocarlo.
+
+3. **`GameStateMachine` freeze frame**:
+   - Nuevo `[SerializeField] GameConfigSO _config` + assert en `Awake`.
+   - `HandleBallFell` ahora hace el transition **síncrono** (`CurrentState = GameOver`) para que un segundo `OnFell` en el mismo frame se filtre por el guard, y luego dispara `_endGameRoutine = StartCoroutine(EndGameRoutine())`.
+   - `EndGameRoutine`: `Time.timeScale = 0` → `WaitForSecondsRealtime(duration)` → `Time.timeScale = 1` → `_onGameOver.Raise()`. El panel de GameOver aparece **después** del hit-stop, lo que da peso al momento de impacto.
+   - `OnDisable` defensivo: detiene la coroutine en curso y restaura `Time.timeScale = 1f` si quedó a 0 (defiende contra unload de escena mid-freeze).
+   - Eliminado el helper privado `EndGame()` — su única llamada (desde `HandleBallFell`) ahora vive en el camino coroutine, y mantenerlo sería un wrapper de una línea sin valor.
+
+4. **Nueva capa Audio** — asmdef `ZigZag.Runtime.Audio` referenciando solo `ZigZag.Runtime.Events`. Sigue la regla de la presentación (UI/Audio/VFX solo escucha, nunca conduce).
+   - `AudioManager.cs` (`MonoBehaviour sealed`, `[DisallowMultipleComponent]`, `[RequireComponent(AudioSource)]`):
+     - 3 slots de canal SO: `_onDirectionChanged` (parameterless, el que `BallController` ahora raise), `_onGemCollected` (`IntGameEventSO` existente; el payload se descarta con `int _`), `_onGameOver` (`GameEventSO` existente).
+     - 3 `AudioClip` slots + 3 `[Range(0,1)] float` para volume per-clip (default flip 0.7, gem/death 1.0).
+     - `Awake` agarra el `AudioSource`, fuerza `playOnAwake=false` y `loop=false` por si el prefab está mal configurado.
+     - `OnEnable`/`OnDisable` simétricos (CLAUDE.md §7). Handlers `=>`-bodied a `PlayOneShot(clip, volume)`. `PlayOneShot` con `clip == null` → no-op silencioso, para poder probar el wiring sin tener los clips aún.
+
+### Decisiones técnicas
+
+- **Hit-stop antes del raise, no después.** Alternativa considerada: raise inmediato + freeze por encima. Descartada porque el panel UI aparecería instantáneamente, anulando perceptualmente el freeze — lo único que quedaría congelado sería el path, sin valor narrativo. Con el orden actual, los 100 ms del freeze son lo que separa "la bola se cayó" de "aparece el panel", que es lo que pide el game feel arcade clásico.
+- **`PlayOneShot` con un solo `AudioSource` compartido**, no un `AudioSource` por clip. `PlayOneShot` permite solapes y mantiene el componente count abajo. Si en algún momento un SFX necesita pitch/spatial settings propios, se promueve a su propio `AudioSource` — todavía no es el caso.
+- **Canal SO parameterless para direction change**, no `Vector3GameEventSO`. Audio no necesita el vector. Si la VFX futura sí lo necesita, se añade un segundo canal o se introduce un `Vector3GameEventSO` específico — YAGNI por ahora.
+- **`AudioManager` no se asserta en `GameBootstrap`.** Coherente con la regla actual: `UIController` tampoco se asserta porque eso forzaría `Core → UI` y rompería la dirección del grafo de asmdefs. Audio es "presentación" en la misma capa que UI; se autovalida.
+- **Volumes per-clip serializados en el `AudioManager`**, no en `GameConfigSO`. Son ganancia de mixing, no game design — viven con quien los reproduce. Si más adelante hace falta un `AudioMixer` con grupos (`SFX`, `Music`), se mete entre el `AudioSource` y los clips sin tocar este código.
+
+### Pendiente — setup manual en Unity
+
+1. **Crear `SO_OnDirectionChanged.asset`** en `Assets/Settings/Events/` (`Create → ZigZag → Events → Game Event`).
+2. **Arrastrarlo al slot `_onDirectionChangedChannel` del `BallController`** del Player.
+3. **`SO_GameConfig.asset`**: el campo `Freeze Frame On Death Seconds` aparecerá en la sección `Game Feel`; valor 0.1 (default ya es 0.1, así que basta con verificar).
+4. **Arrastrar `SO_GameConfig` al nuevo slot `_config` del `GameStateMachine`** (campo nuevo, aparece bajo `Dependencies`).
+5. **Crear GameObject `AudioManager`** en escena con el componente `AudioManager` + un `AudioSource` (lo añade `[RequireComponent]` solo). Slots:
+   - `_onDirectionChanged` → `SO_OnDirectionChanged.asset` recién creado.
+   - `_onGemCollected` → `SO_OnGemCollected.asset` (existente).
+   - `_onGameOver` → `SO_OnGameOver.asset` (existente).
+   - `_directionFlipClip`, `_gemCollectedClip`, `_gameOverClip` → 3 `AudioClip` que hay que conseguir (jsfxr / freesound CC0). Slot vacío → no crashea, simplemente no suena ese SFX.
+6. **Conseguir 3 clips** y dejarlos en `Assets/Audio/`. Recomendaciones GDD §9: click 50 ms, tintineo 200 ms, impacto grave 300 ms.
+
+### Verificación
+
+- Play → click → la bola flipea → suena `directionFlipClip` (si está asignado).
+- Recoger gema → suena `gemCollectedClip`.
+- Caer del path → freeze de 100 ms (la bola se queda congelada mid-fall) → suena `gameOverClip` y aparece el panel GameOver. Retry → la bola vuelve a Menu sin que el `Time.timeScale` se quede a 0 (si se queda, hay un bug — comprobar que `OnDisable` no se está disparando mid-coroutine).
+- Profiler / Audio Mixer: 0 instances de `AudioSource` creados en runtime; el único que existe es el del GameObject `AudioManager`.
+
+### Próxima iteración (planteamiento)
+
+Polish visual restante (trail renderer en la bola, particles en gem/death) o saltarlo y cerrar deliverable (README + build de Windows). Decisión a tomar al inicio de la siguiente sesión.
+
+### Addendum mismo día — rotación de la bola
+
+Añadido rolling visual sin slip en `BallController`:
+
+- Nuevo `[SerializeField] private float _ballRadius = 0.5f`. Sección `Visual Rolling` propia, separada de gameplay tuning porque es un valor de presentación (acoplado al render del sphere primitive, no al feel del movimiento). `OnValidate` clampa a `>= 0.01` para evitar división por cero.
+- `_rollAxis = Vector3.Cross(Vector3.up, CurrentDirection)`. Para `(-1,0,0)` da `+Z`; para `(0,0,1)` da `+X`. Cacheado y recomputado en `Awake`, `ResetTo` y `FlipDirection` — el cross se hace una vez por cambio de dirección, no por frame.
+- `Update` aplica `transform.Rotate(_rollAxis, CurrentSpeed * dt * Rad2Deg / _ballRadius, Space.World)` al final del tick, después del position/speed update. La fórmula es la del rolling sin deslizamiento: ω = v/r (rad/s). Se aplica tanto cuando la bola está grounded como mientras cae (hasta que cruza `FallThreshold` y `IsMoving` se pone a `false`, momento en que `Update` early-returns y la rotación se congela junto con la posición).
+- `ResetTo` ahora también resetea `transform.rotation = Quaternion.identity` para que cada run empiece con orientación limpia (invisible con un sphere de color plano, pero importante en cuanto haya textura/skin con detalle direccional).
+
+### Decisión técnica
+
+- **Sin slerp/lerp en el cambio de eje de rotación.** Al flipear dirección el eje cambia de golpe (de +Z a +X o viceversa). Una transición suave entre ejes daría un "wobble" visual incoherente con el cambio instantáneo de dirección lineal del juego. El estilo ZigZag premia inputs limpios; el rolling sigue el mismo principio.
+- **No se mueve `_ballRadius` a `GameConfigSO`.** Es un parámetro de presentación atado al GameObject visual, no al game feel. Si alguien cambia el `transform.localScale` del sphere, también debe ajustar este campo en el mismo Inspector — mantenerlos juntos previene drift entre escala visual y velocidad angular.
+
+### Pendiente — setup manual
+
+Ninguno. El default `_ballRadius = 0.5f` funciona con el sphere primitive de Unity a escala 1 sin tocar nada. Si el visual cambia de tamaño en algún momento, ajustar el campo en el componente `BallController`.
