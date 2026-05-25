@@ -87,6 +87,10 @@ namespace ZigZag.Runtime.Data
         [SerializeField, Tooltip("Points per unit of forward progress (measured along the global forward axis, -X+Z diagonal).")]
         private int _distanceMultiplier = 1;
 
+        [Header("Game Feel")]
+        [SerializeField, Tooltip("Duration (real seconds) of the hit-stop applied when the ball falls. Time.timeScale is set to 0 for this long before the GameOver panel appears. 0 disables the freeze.")]
+        private float _freezeFrameOnDeathSeconds = 0.1f;
+
         [Header("Pooling")]
         [SerializeField, Tooltip("Number of platform cubes the pool prewarms on Awake. The pool grows up to twice this value if pressure spikes.")]
         private int _platformPoolInitialSize = 50;
@@ -118,6 +122,7 @@ namespace ZigZag.Runtime.Data
         public float GemHeightAboveCubeCenter => _gemHeightAboveCubeCenter;
         public int DistanceMultiplier => _distanceMultiplier;
         public int GemPoolInitialSize => _gemPoolInitialSize;
+        public float FreezeFrameOnDeathSeconds => _freezeFrameOnDeathSeconds;
 
 #if UNITY_EDITOR
         private void OnValidate()
@@ -142,6 +147,7 @@ namespace ZigZag.Runtime.Data
             if (_distanceMultiplier < 0) _distanceMultiplier = 0;
             if (_gemPoolInitialSize < 1) _gemPoolInitialSize = 1;
             if (_gemHeightAboveCubeCenter < 0f) _gemHeightAboveCubeCenter = 0f;
+            if (_freezeFrameOnDeathSeconds < 0f) _freezeFrameOnDeathSeconds = 0f;
         }
 #endif
     }
