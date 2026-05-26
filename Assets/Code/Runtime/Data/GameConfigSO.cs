@@ -91,6 +91,10 @@ namespace ZigZag.Runtime.Data
         [SerializeField, Tooltip("Duration (real seconds) of the hit-stop applied when the ball falls. Time.timeScale is set to 0 for this long before the GameOver panel appears. 0 disables the freeze.")]
         private float _freezeFrameOnDeathSeconds = 0.1f;
 
+        [Header("Platform Fall")]
+        [SerializeField, Tooltip("Forward distance behind the ball (measured along the path diagonal) at which a passed platform starts its collapse animation. Each cube step contributes ~0.707 along this axis, so 1.5 ≈ 2 cubes behind, 2.1 ≈ 3 cubes behind.")]
+        private float _platformFallStartBehind = 1.5f;
+
         [Header("Pooling")]
         [SerializeField, Tooltip("Number of platform cubes the pool prewarms on Awake. The pool grows up to twice this value if pressure spikes.")]
         private int _platformPoolInitialSize = 50;
@@ -117,6 +121,7 @@ namespace ZigZag.Runtime.Data
         public float BehindBuffer => _behindBuffer;
         public int GenerationSeed => _generationSeed;
         public int PlatformPoolInitialSize => _platformPoolInitialSize;
+        public float PlatformFallStartBehind => _platformFallStartBehind;
         public float GemSpawnProbability => _gemSpawnProbability;
         public int GemValue => _gemValue;
         public float GemHeightAboveCubeCenter => _gemHeightAboveCubeCenter;
@@ -148,6 +153,7 @@ namespace ZigZag.Runtime.Data
             if (_gemPoolInitialSize < 1) _gemPoolInitialSize = 1;
             if (_gemHeightAboveCubeCenter < 0f) _gemHeightAboveCubeCenter = 0f;
             if (_freezeFrameOnDeathSeconds < 0f) _freezeFrameOnDeathSeconds = 0f;
+            if (_platformFallStartBehind < 0f) _platformFallStartBehind = 0f;
         }
 #endif
     }

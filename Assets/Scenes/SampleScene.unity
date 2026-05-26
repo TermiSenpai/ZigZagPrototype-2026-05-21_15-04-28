@@ -1228,9 +1228,9 @@ MonoBehaviour:
   _onDirectionChanged: {fileID: 11400000, guid: b10a8a053fea7694db063719d076c3d5, type: 2}
   _onGemCollected: {fileID: 11400000, guid: 72741e8be2324cc88d2ecbe99aaf7c1d, type: 2}
   _onGameOver: {fileID: 11400000, guid: 71e88f36645b19d4c9f93acc4d61471c, type: 2}
-  _directionFlipClip: {fileID: 0}
-  _gemCollectedClip: {fileID: 0}
-  _gameOverClip: {fileID: 0}
+  _directionFlipClip: {fileID: 8300000, guid: 752c7e5e73038e944abc58668b630ea4, type: 3}
+  _gemCollectedClip: {fileID: 8300000, guid: 72aae70147feb1348ae878a8723337aa, type: 3}
+  _gameOverClip: {fileID: 8300000, guid: 87331e75bb1313845863b470ed5e7f5b, type: 3}
   _directionFlipVolume: 0.7
   _gemCollectedVolume: 1
   _gameOverVolume: 1
@@ -2727,7 +2727,7 @@ Camera:
   far clip plane: 1000
   field of view: 60
   orthographic: 1
-  orthographic size: 6.3
+  orthographic size: 7.5
   m_Depth: -1
   m_CullingMask:
     serializedVersion: 2

@@ -37,5 +37,6 @@ MonoBehaviour:
   _gemHeightAboveCubeCenter: 3.2
   _distanceMultiplier: 1
   _freezeFrameOnDeathSeconds: 0
+  _platformFallStartBehind: 1.5
   _platformPoolInitialSize: 50
   _gemPoolInitialSize: 20

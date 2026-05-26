@@ -24,6 +24,14 @@ namespace ZigZag.Runtime.Gameplay.World
 
         public Vector3 LastCubePosition => _cubes[_cubes.Count - 1].transform.position;
 
+        /// <summary>
+        /// Index of the first cube whose fall animation has not been triggered yet.
+        /// Cubes within a segment are passed by the ball in order (cube 0 first,
+        /// cube N-1 last), so the generator only needs to walk forward from this
+        /// counter each frame instead of scanning every cube.
+        /// </summary>
+        public int FallTriggerIndex { get; private set; }
+
         public Segment(Vector3 direction, int initialCapacity = 8)
         {
             Direction = direction;
@@ -33,6 +41,11 @@ namespace ZigZag.Runtime.Gameplay.World
         public void AddCube(GameObject cube)
         {
             _cubes.Add(cube);
+        }
+
+        public void AdvanceFallTrigger()
+        {
+            FallTriggerIndex++;
         }
     }
 }

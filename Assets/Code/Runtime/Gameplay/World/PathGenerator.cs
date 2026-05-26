@@ -104,6 +104,7 @@ namespace ZigZag.Runtime.Gameplay.World
         {
             if (!_isGenerating) return;
             EnsureAhead();
+            TriggerFalls();
             RecycleBehind();
         }
 
@@ -200,6 +201,51 @@ namespace ZigZag.Runtime.Gameplay.World
             {
                 SpawnNextCubeOrStartNewSegment();
                 spawnedThisFrame++;
+            }
+        }
+
+        /// <summary>
+        /// Tells each cube the ball has just passed to start its collapse animation.
+        /// Walks the queue from the oldest segment forward, using each segment's
+        /// <see cref="Segment.FallTriggerIndex"/> as a watermark so a cube is only
+        /// triggered once and we don't rescan the whole path every frame. Stops as
+        /// soon as a still-ahead cube is found — forward offset along the path is
+        /// monotonic, so anything past that point is also still ahead.
+        /// </summary>
+        private void TriggerFalls()
+        {
+            if (_ballTransform == null || _config == null) return;
+
+            float threshold = _config.PlatformFallStartBehind;
+            if (threshold <= 0f) return;
+
+            Vector3 ballPosition = _ballTransform.position;
+
+            // Queue<T>.GetEnumerator returns a struct enumerator — no allocation per frame.
+            foreach (Segment segment in _segments)
+            {
+                IReadOnlyList<GameObject> cubes = segment.Cubes;
+                bool reachedStillAheadCube = false;
+
+                while (segment.FallTriggerIndex < cubes.Count)
+                {
+                    GameObject cube = cubes[segment.FallTriggerIndex];
+                    // Y component of GlobalForward is 0, so a cube that has already started
+                    // falling still reports the same forward offset as before — safe to use
+                    // its live position here.
+                    float forwardOffset = Vector3.Dot(cube.transform.position - ballPosition, GlobalForward);
+                    if (forwardOffset > -threshold)
+                    {
+                        reachedStillAheadCube = true;
+                        break;
+                    }
+
+                    PlatformFaller faller = cube.GetComponent<PlatformFaller>();
+                    if (faller != null) faller.Begin();
+                    segment.AdvanceFallTrigger();
+                }
+
+                if (reachedStillAheadCube) return;
             }
         }
 
