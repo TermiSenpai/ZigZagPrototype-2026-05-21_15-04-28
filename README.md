@@ -10,7 +10,7 @@ encapsulation discipline, ScriptableObject-driven architecture, and a complete s
 
 `v0.9` · mobile-portrait 608×1080 · 1 scene · 0 third-party packages
 
-[English](#english) · [Castellano](#castellano) · [Devlog](devlog.md) · [GDD](zigzag_gdd.md) · [Architecture](zigzag_architecture.md)
+[English](#english) · [Castellano](#castellano) · Devlog ([EN](devlog.en.md) · [ES](devlog.md)) · GDD ([EN](zigzag_gdd.en.md) · [ES](zigzag_gdd.md)) · Architecture ([EN](zigzag_architecture.en.md) · [ES](zigzag_architecture.md))
 
 </div>
 
@@ -81,12 +81,12 @@ documents instead of rediscovering the context.
 
 | Phase                  | Artifact                                            | Location                        |
 | ---------------------- | --------------------------------------------------- | ------------------------------- |
-| Design                 | Game Design Document (Spanish)                      | [`zigzag_gdd.md`](zigzag_gdd.md) |
-| Architecture           | C4 + ADRs (Spanish)                                 | [`zigzag_architecture.md`](zigzag_architecture.md) |
+| Design                 | Game Design Document                                | [`zigzag_gdd.en.md`](zigzag_gdd.en.md) ([ES](zigzag_gdd.md)) |
+| Architecture           | C4 + ADRs                                           | [`zigzag_architecture.en.md`](zigzag_architecture.en.md) ([ES](zigzag_architecture.md)) |
 | Per-iteration spec     | Design of a feature before any code                 | `docs/superpowers/specs/`       |
 | Per-iteration plan     | Step-by-step implementation plan with task checklist| `docs/superpowers/plans/`       |
 | Project rules          | Mandatory rules the AI must respect                 | [`CLAUDE.md`](CLAUDE.md)        |
-| Per-iteration devlog   | What was done, why, what's pending                  | [`devlog.md`](devlog.md)        |
+| Per-iteration devlog   | What was done, why, what's pending                  | [`devlog.en.md`](devlog.en.md) ([ES](devlog.md)) |
 
 **Why Opus 4.7?** Opus 4.7 has the deepest reasoning in the Claude 4.X family, which is what this
 project's discipline asks for: every decision is documented with its rejected alternatives, every script
@@ -94,7 +94,7 @@ is rejected if it doesn't fit the rules in [`CLAUDE.md`](CLAUDE.md). A model tha
 would have produced a faster but less defensible prototype.
 
 > **About this README.** This README itself was also generated with **Claude Code Opus 4.7**, after a
-> read-only analysis of the full repository: every C# script in `Assets/Code/`, the [`devlog.md`](devlog.md)
+> read-only analysis of the full repository: every C# script in `Assets/Code/`, the [`devlog.en.md`](devlog.en.md)
 > history, the per-iteration plans and specs under `docs/superpowers/`, the `git log` and the asmdef
 > graph. The model then synthesized the documentation you are reading — same pattern as every other
 > artifact in the repo: *understand the source of truth first, then describe it*.
@@ -164,7 +164,7 @@ Assets/
 
 **Assembly definitions form a DAG with strictly downward dependencies** (UI → Gameplay → Core → Data/Events).
 This is enforced by the asmdef references; a cycle is a compile error. The architecture document tracks the
-exact graph in `zigzag_architecture.md §5`.
+exact graph in `zigzag_architecture.en.md §5`.
 
 ---
 
@@ -236,7 +236,7 @@ Nobody holds a hard reference to anybody they don't strictly need.
        — all only subscribe to channels; none of them feed gameplay logic.
 ```
 
-**Key invariants** (full list in `zigzag_architecture.md`):
+**Key invariants** (full list in `zigzag_architecture.en.md`):
 
 - The ball is **kinematic** (ADR-001): movement is `transform.position +=`, fall is a hand-rolled
   downward velocity. No `Rigidbody` on the ball.
@@ -508,7 +508,7 @@ and receiver.
 
 ### 10. Iteration roadmap
 
-The full devlog is at [`devlog.md`](devlog.md). One paragraph per iteration:
+The full devlog is at [`devlog.en.md`](devlog.en.md). One paragraph per iteration:
 
 | # | Date | Iteration | Outcome |
 |---|------|-----------|---------|
@@ -550,11 +550,11 @@ All tests are AAA-structured, one logical assertion per test, file paths mirror 
 | Topic                              | Path                                                          |
 | ---------------------------------- | ------------------------------------------------------------- |
 | Project rules (mandatory)          | [`CLAUDE.md`](CLAUDE.md)                                       |
-| Game design document               | [`zigzag_gdd.md`](zigzag_gdd.md)                               |
-| Architecture (C4 + ADRs)           | [`zigzag_architecture.md`](zigzag_architecture.md)             |
+| Game design document               | [`zigzag_gdd.en.md`](zigzag_gdd.en.md) ([ES](zigzag_gdd.md))   |
+| Architecture (C4 + ADRs)           | [`zigzag_architecture.en.md`](zigzag_architecture.en.md) ([ES](zigzag_architecture.md)) |
 | Per-iteration specs                | [`docs/superpowers/specs/`](docs/superpowers/specs/)           |
 | Per-iteration plans                | [`docs/superpowers/plans/`](docs/superpowers/plans/)           |
-| Devlog                             | [`devlog.md`](devlog.md)                                       |
+| Devlog                             | [`devlog.en.md`](devlog.en.md) ([ES](devlog.md))               |
 | Agent prompts (Claude subagents)   | [`.claude/agents/`](.claude/agents/)                           |
 | Original Junior Game Developer brief | [`Junior Game Developer - Technical Test.pdf`](Junior%20Game%20Developer%20-%20Technical%20Test.pdf) |
 
@@ -637,12 +637,12 @@ esos documentos en lugar de redescubrir el contexto.
 
 | Fase                     | Artefacto                                              | Localización                  |
 | ------------------------ | ------------------------------------------------------ | ----------------------------- |
-| Diseño                   | Game Design Document (castellano)                      | [`zigzag_gdd.md`](zigzag_gdd.md) |
-| Arquitectura             | C4 + ADRs (castellano)                                 | [`zigzag_architecture.md`](zigzag_architecture.md) |
+| Diseño                   | Game Design Document                                   | [`zigzag_gdd.md`](zigzag_gdd.md) ([EN](zigzag_gdd.en.md)) |
+| Arquitectura             | C4 + ADRs                                              | [`zigzag_architecture.md`](zigzag_architecture.md) ([EN](zigzag_architecture.en.md)) |
 | Spec por iteración       | Diseño de una feature antes de tocar código            | `docs/superpowers/specs/`     |
 | Plan por iteración       | Plan paso-a-paso con checklist de tareas               | `docs/superpowers/plans/`     |
 | Reglas del proyecto      | Reglas obligatorias que la IA debe respetar            | [`CLAUDE.md`](CLAUDE.md)      |
-| Devlog por iteración     | Qué se hizo, por qué, qué queda pendiente              | [`devlog.md`](devlog.md)      |
+| Devlog por iteración     | Qué se hizo, por qué, qué queda pendiente              | [`devlog.md`](devlog.md) ([EN](devlog.en.md)) |
 
 **¿Por qué Opus 4.7?** Opus 4.7 tiene el razonamiento más profundo de la familia Claude 4.X, que es lo
 que la disciplina de este proyecto exige: cada decisión queda documentada con sus alternativas
@@ -1109,11 +1109,11 @@ runtime.
 | Tema                                | Ruta                                                           |
 | ----------------------------------- | -------------------------------------------------------------- |
 | Reglas del proyecto (obligatorias)  | [`CLAUDE.md`](CLAUDE.md)                                        |
-| Game Design Document                | [`zigzag_gdd.md`](zigzag_gdd.md)                                |
-| Arquitectura (C4 + ADRs)            | [`zigzag_architecture.md`](zigzag_architecture.md)              |
+| Game Design Document                | [`zigzag_gdd.md`](zigzag_gdd.md) ([EN](zigzag_gdd.en.md))       |
+| Arquitectura (C4 + ADRs)            | [`zigzag_architecture.md`](zigzag_architecture.md) ([EN](zigzag_architecture.en.md)) |
 | Specs por iteración                 | [`docs/superpowers/specs/`](docs/superpowers/specs/)            |
 | Planes por iteración                | [`docs/superpowers/plans/`](docs/superpowers/plans/)            |
-| Devlog                              | [`devlog.md`](devlog.md)                                        |
+| Devlog                              | [`devlog.md`](devlog.md) ([EN](devlog.en.md))                   |
 | Prompts de agentes (subagentes Claude) | [`.claude/agents/`](.claude/agents/)                         |
 | Brief original Junior Game Developer | [`Junior Game Developer - Technical Test.pdf`](Junior%20Game%20Developer%20-%20Technical%20Test.pdf) |
 
