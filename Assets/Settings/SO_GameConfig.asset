@@ -20,7 +20,7 @@ MonoBehaviour:
   _groundCheckDistance: 0.55
   _groundLayerMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 64
   _cameraFollowSmoothTime: 0.15
   _pathStartPosition: {x: -2, y: -3, z: 3}
   _pathStartPositionAlternate: {x: -3, y: -3, z: 2}
