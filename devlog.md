@@ -475,3 +475,196 @@ Añadido rolling visual sin slip en `BallController`:
 ### Pendiente — setup manual
 
 Ninguno. El default `_ballRadius = 0.5f` funciona con el sphere primitive de Unity a escala 1 sin tocar nada. Si el visual cambia de tamaño en algún momento, ajustar el campo en el componente `BallController`.
+
+---
+
+## 2026-05-25 — Iteración 5: tienda de skins (en paralelo con iter 6)
+
+### Objetivo
+
+Reemplazar el powerup imán descopeado por una tienda accesible desde el Menu donde el jugador gasta las coins de `CoinsWallet` para comprar y equipar skins cosméticos de la bola (solo swap de material). Prueba que la arquitectura SO + canales aguanta una feature nueva sin tocar `Gem`, `ScoreManager` ni `BallController`. Iter 5 vivió en una rama paralela a iter 6 (game-feel) — el merge `d1f348e` integra ambas el mismo día.
+
+### Lo que se ha implementado
+
+1. **Capa `Cosmetics/` nueva** dentro de `ZigZag.Runtime.Gameplay` (sin asmdef propio — sub-feature):
+   - `BallSkinSO` — datos por skin: `Id` (estable, contrato de persistencia, nunca renombrar), `DisplayName`, `Price`, `Material`. `OnValidate` exige `Id` y `Material`.
+   - `BallSkinCatalogSO` — array ordenado de skins. El primero es el default (`Price = 0`, siempre owned). `GetById` con loop manual (no LINQ, regla de hot-path CLAUDE §8). `OnValidate` chequea unicidad de IDs y `Price == 0` en el primero.
+   - `SkinInventory` — único dueño de las PlayerPrefs keys `"OwnedSkins"` (CSV) y `"EquippedSkin"` (id). Escucha `SO_OnSkinPurchaseRequested` (valida con `CoinsWallet.TrySpend` + auto-equipa) y `SO_OnSkinEquipRequested` (cambia equipado si ya owned). Persistencia en cada mutación — un alt-F4 a mitad de tienda no roba un skin pagado. `Start` raises `SO_OnSkinEquipped` con el equipado actual para pintar al primer frame.
+   - `BallSkinApplier` — vive en la bola, escucha `SO_OnSkinEquipped` y hace `MeshRenderer.sharedMaterial = skin.Material`. `sharedMaterial` deliberado: `.material` instanciaría heap-allocs y rompería batching.
+   - `AssemblyInfo.cs` con `[InternalsVisibleTo("ZigZag.Tests.EditMode")]` para testear `ParseOwnedCsv`.
+
+2. **`CoinsWallet.TrySpend(int amount)`** añadido — devuelve `bool`. Guarda contra `amount <= 0` y `TotalCoins < amount`. Persiste y raise `SO_OnCoinsChanged` solo en éxito. `SessionCoins` no se toca (gastar no es un evento de run). Cubierto por 3 tests EditMode nuevos (`CoinsWalletTests`).
+
+3. **UI Shop**:
+   - `ShopRowView` — pure presentation. `Bind(skin)` setea name/swatch (color del material)/listener; `Refresh(owned, equipped, canAfford)` actualiza el label del botón (`BUY 50`, `EQUIP`, `EQUIPPED`) y `interactable`. Click raises `SO_OnSkinPurchaseRequested` o `SO_OnSkinEquipRequested` con el `Id` como payload.
+   - `ShopPanel` — overlay sobre el Menu. `Start` construye una fila por entrada del catalog dentro de un `VerticalLayoutGroup`. `OpenShop()` activa el root + raises `SO_OnShopOpened`; `CloseShop()` lo cierra + raises `SO_OnShopClosed`. Escucha `SO_OnInventoryChanged` y `SO_OnCoinsChanged` para refresh.
+   - `UIController.OnShopButtonClicked()` añadido — wired al botón SHOP del Menu via inspector, llama `_shopPanel.OpenShop()`.
+
+4. **`InputHandler` doble supresión UI ↔ gameplay**:
+   - Nuevas refs `_onShopOpened` / `_onShopClosed` → `_isBlocked` flag bloquea TODO input (mouse + Space) mientras la tienda está abierta.
+   - Guard adicional `EventSystem.current.IsPointerOverGameObject()` — si el click cayó sobre un UI raycast target (botón SHOP del menu, botón RETRY de GameOver, cualquier widget futuro encima del gameplay), el tap se descarta. Space no se ve afectado (no tiene posición).
+   - `ZigZag.Runtime.Input.asmdef` ahora referencia `Events`.
+
+5. **`ZigZag.Runtime.UI.asmdef`** añade referencia a `ZigZag.Runtime.Gameplay` para que `ShopPanel`/`ShopRowView` puedan tipar `BallSkinSO`, `SkinInventory` y `CoinsWallet`.
+
+6. **5 canales SO nuevos** en `Assets/Settings/Events/`:
+   - `SO_OnSkinPurchaseRequested` (String) — UI → Inventory.
+   - `SO_OnSkinEquipRequested` (String) — UI → Inventory.
+   - `SO_OnSkinEquipped` (String) — Inventory → BallSkinApplier + ShopPanel.
+   - `SO_OnInventoryChanged` (parameterless) — Inventory → ShopPanel.
+   - `SO_OnShopOpened` / `SO_OnShopClosed` (parameterless) — ShopPanel → InputHandler.
+
+7. **Assets**: 5 materiales (`M_BallSkin_Default/Red/Green/Blue/Gold`) + 5 `SO_Skin_*.asset` + `SO_BallSkinCatalog.asset` + prefab `P_ShopRow`.
+
+8. **`GameBootstrap`** valida `_skinInventory` y `_ballSkinApplier` en `Awake` con `Debug.Assert` — coherente con la regla de validación local del bootstrap.
+
+9. **Tests EditMode**:
+   - `CoinsWalletTests` (3) — `TrySpend` deduce + raise / preserva en insuficiencia / falla en `amount <= 0`.
+   - `SkinInventoryTests` (4) — `ParseOwnedCsv` con todos los IDs / con IDs desconocidos / con whitespace / con CSV vacío o null. TearDown destruye los `BallSkinSO` instanciados (fix de leak detectado en `c1f89ad`).
+
+### Decisiones técnicas
+
+- **Catalog-of-SOs, no enum.** Añadir un skin es crear un `.asset`, no recompilar. Coste: una indirección por lookup; payoff: editorial workflow puro.
+- **`Id` separado de `name` del asset.** El asset puede renombrarse sin romper PlayerPrefs; el `Id` es el contrato.
+- **Doble supresión UI/tap.** El bloqueo por `_isBlocked` cubre Space; el guard `IsPointerOverGameObject()` cubre clicks que caen sobre buttons. Ninguno solo basta — Space ignora pointer; los clicks fuera del shop sí tienen que pasar.
+- **Auto-equipa al comprar.** Un skin que compras sin saber dónde activarlo es fricción gratuita. La UX clásica de Ketchapp (gym ZigZag, Crossy Road) auto-equipa, así que se replica.
+- **Sin botón "Restore Purchases" / sin IAP.** Skins gratis pagadas con currency in-game; el prototipo no toca stores reales. Si algún día se monetiza, el SkinInventory se mantiene; se añade un servicio aparte.
+
+### Pendiente — setup manual en Unity
+
+Cubierto en el plan `docs/superpowers/plans/2026-05-25-shop-and-ball-skins.md` (tasks 12–18). Resumen: crear los 5 SO de eventos + 5 skins SO + catalog + prefab `P_ShopRow`, montar `ShopPanel` como hijo del Canvas con `VerticalLayoutGroup`, añadir botón SHOP en MenuPanel, wirear `BallSkinApplier` en el GameObject de la bola, wirear `SkinInventory` en root. Si las refs nuevas del Bootstrap quedan vacías, los `Debug.Assert` lo cazan al play.
+
+### Verificación
+
+- Play → Menu visible → botón SHOP abre overlay → 5 filas. Default = `EQUIPPED`, otras con precio.
+- Click `BUY` con coins insuficientes → botón gris, no responde.
+- Recoger gemas hasta tener 50 coins → `BUY 50` se vuelve interactable. Click → coins bajan, fila pasa a `EQUIPPED`, la bola cambia de color en tiempo real (el `OnSkinEquipped` rasiona el material).
+- Cerrar shop → tap en pantalla arranca la run. Click sobre el botón SHOP no arranca la run (guard de UI raycast).
+- Quit & relaunch → coins y skin equipado persisten.
+
+---
+
+## 2026-05-25 — Iteración 7: paleta de color cíclica
+
+### Objetivo
+
+Dar identidad visual al juego sin assets externos. Cada N puntos el path y el fondo cambian a un par de colores complementarios, lerpeando suave. Coste cero en arte (todo es HSV sampling), valor alto en motivación al jugador (cada threshold se siente como un mini-hito).
+
+### Lo que se ha implementado
+
+1. **Sub-feature `Gameplay/Aesthetics/`** dentro del asmdef `ZigZag.Runtime.Gameplay`:
+   - `PaletteRulesSO` — asset configurable. Bloques `Timing` (`ScoreThresholdStep = 50`, `TransitionSeconds = 1.5`), `HSV Sampling` (`SaturationRange = (0.55, 0.85)`, `ValueRange = (0.70, 0.95)`, `MinHueDistanceFromPrevious = 0.15` — evita paletas casi idénticas), `Initial Colors` (platform y camera de boot, matcheados a los actuales del proyecto), `Shader` (`_Color` por defecto; cambiar a `_BaseColor` migra a URP sin tocar código). `OnValidate` clampa todo.
+   - `PaletteSampler` — `static class` interna y pura. `Sample(rng, rules, previousPrimaryHue)` devuelve `(platform, camera, primaryHue)` con la cámara usando el hue complementario (offset 0.5 en el círculo). Loop de hasta 8 intentos para respetar `MinHueDistanceFromPrevious`; si no se cumple, acepta el último sampleado (degradación graceful). Helpers `ComplementHue` y `CircularDistance` expuestos para tests.
+   - `PaletteController` — `MonoBehaviour sealed`:
+     - Escucha `SO_OnScoreChanged` (`IntGameEventSO`). Cuenta cuántos `ScoreThresholdStep` se han cruzado; cuando sube uno nuevo, dispara `TriggerSwap`.
+     - `LerpRoutine` (coroutine) interpola `_currentPlatformColor` → `targetPlatform` y `_currentCameraColor` → `targetCamera` durante `TransitionSeconds`. Cancela una transición en curso si entra otra (no se acumulan).
+     - Escucha `SO_OnGameReset` — vuelve a colores iniciales, re-seed del `System.Random`, `_lastThresholdReached = 0`.
+     - Escucha `SO_OnGameStarted` defensivamente — reset del threshold counter en caso de que el orden de los handlers en GameReset difiera.
+     - `Shader.PropertyToID` cacheado para evitar el lookup por nombre en cada `SetColor`.
+
+2. **`PlatformPool.RuntimeMaterial`** — nueva propiedad. En `Awake` el pool clona el material del prefab (`new Material(prefabRenderer.sharedMaterial)`) y lo asigna como `sharedMaterial` a cada cubo creado. El `PaletteController` muta este material runtime — todos los cubos del pool cambian de color con un solo `SetColor`. Se destruye en `OnDestroy` para no fugar.
+
+3. **Determinismo coherente con `PathGenerator`**: `PaletteController` usa su propio `System.Random` seedeado con `GameConfigSO.GenerationSeed` (mismo sentinel: `0` → `Environment.TickCount`). Instancias independientes para no contaminar la secuencia del generator.
+
+### Decisiones técnicas
+
+- **Material runtime en el pool, no en cada cubo.** Si cada cubo instanciara su propio `.material`, el batching se rompería (60+ draw calls vs. 1) y un palette swap pediría `N*SetColor` en lugar de uno solo.
+- **Complementario, no análogo ni triádico.** El contraste alto entre path y fondo facilita el read en movimiento. Análogos/triádicos sirven para arte estático, no para un juego de reacción.
+- **`MinHueDistanceFromPrevious = 0.15`.** Empíricamente, por debajo de 0.12 dos paletas consecutivas se sienten "iguales"; por encima de 0.20 cada salto es violento. 0.15 es el punto dulce.
+- **Lerp del platform Y del camera en la misma coroutine.** Iniciar dos lerps independientes daría drift si los `Time.deltaTime` no son idénticos (no lo son si entran handlers en distintos puntos del frame). Una sola coroutine garantiza sync.
+- **Sin assert de `PaletteController` en `GameBootstrap`.** Misma razón que con `UIController`/`AudioManager`: es capa de presentación, se autovalida.
+
+### Pendiente — setup manual en Unity
+
+1. Crear `SO_PaletteRules.asset` (`Create → ZigZag → Aesthetics → Palette Rules`). Defaults son razonables.
+2. GameObject `PaletteController` con el componente. Slots: `_camera` (Main Camera), `_platformPool` (el GameObject `PlatformPool`), `_rules` (`SO_PaletteRules`), `_config` (`SO_GameConfig`), `_onScoreChanged`, `_onGameReset`, `_onGameStarted`.
+
+### Verificación
+
+Play → arranque con colores iniciales (azul path + gris claro fondo). Cuando el score cruza 50 → lerp de ~1.5s a una paleta nueva. Cada 50 puntos, cambio nuevo. Retry → vuelve a colores iniciales con la misma seed (si `GenerationSeed != 0`) o una nueva (si es 0).
+
+---
+
+## 2026-05-26 — Iteración 8: pulido final (plataformas que caen + build móvil + audio assets)
+
+### Objetivo
+
+Cerrar el loop visible para el deliverable: las plataformas que la bola ya cruzó se desploman (lo que refuerza el sentido de no-retorno del juego), build de Windows configurado en formato móvil portrait, clips de audio importados, balance final de score. Iteración con un día de sesión, varios commits pequeños.
+
+### Lo que se ha implementado
+
+1. **`PlatformFaller`** (`Assets/Code/Runtime/Gameplay/World/PlatformFaller.cs`):
+   - `MonoBehaviour sealed [DisallowMultipleComponent]` añadido al prefab `P_PlatformCube`.
+   - Anima caída hand-rolled (no Rigidbody — la bola sigue siendo kinematic, y `PhysX` colisionaría con el ground raycast). `Begin()` arranca; `Update` integra gravedad (`_gravity = 18` u/s² por defecto). Constante `MaxFallDistance = 60` evita que un cubo que entró en caída pero nunca se recicla (porque el game ha acabado, por ejemplo) se desplome para siempre consumiendo CPU.
+   - `Begin()` es idempotente. `OnDisable` resetea estado — el pool desactiva el cubo al `Release`, así que la próxima vez que `Get()` lo saca y `PathGenerator` lo reposiciona, el faller está limpio.
+
+2. **`GameConfigSO._platformFallStartBehind = 1.5f`** — distancia (proyectada sobre `GlobalForward`) detrás de la bola a la que un cubo empieza a caer. 1.5 ≈ 2 cubos detrás (cada step contribuye ~0.707 al eje forward), suficiente para que el cubo esté visualmente fuera del foco antes de empezar a caer.
+
+3. **`PathGenerator.TriggerFalls()`** nuevo paso en `Update`:
+   - Recorre `_segments` (la Queue) en orden — el `foreach` sobre `Queue<T>` usa un enumerator struct, cero allocs por frame (CLAUDE §8 cumplido).
+   - Por segmento, parte de `Segment.FallTriggerIndex` (watermark monotónico) y avanza hasta el primer cubo todavía adelante de la bola. Eso evita rescanear cubos ya disparados.
+   - Para cada cubo detrás del threshold, llama `PlatformFaller.Begin()`. Idempotencia del `Begin()` cubre el caso raro de doble trigger.
+   - Si un cubo está aún adelante (forwardOffset > -threshold), early-return — el progreso a lo largo del path es monotónico, no hace falta seguir mirando.
+
+4. **`Segment.FallTriggerIndex`** — nuevo entero interno + `AdvanceFallTrigger()`. Watermark sobre los cubos ya procesados por `TriggerFalls`. Se resetea cuando el segment se descarta (el pool ya recicla el cubo, el watermark muere con el segmento).
+
+5. **`PathGenerator.RecycleBehind` también barre gemas**: una vez por frame, después del Dequeue, `GemSpawner.ReleaseGemsBehind(ballPos, GlobalForward, BehindBuffer)` recoge cualquier gema no recogida que quedó detrás. Antes el gem pool podía crecer indefinidamente si el jugador esquivaba siempre las gemas.
+
+6. **Build config mobile-portrait**:
+   - `SampleScene` añadida al `EditorBuildSettings.scenes` con index 0 (única).
+   - `PlayerSettings.companyName`/`productName` ajustados; resolución default 608 × 1080 (ratio 9:16, mobile portrait); fullscreen mode `Windowed`; orientación target `Portrait`. Version → `0.9`.
+
+7. **Rebalanceo `_distanceMultiplier` `3 → 1`** — el score final se siente más legible con 1 punto/unit. Las gemas siguen siendo 1 coin/each (separadas en wallet).
+
+8. **Audio assets importados** en `Assets/Audio/`: 3 SFX (`directionChange.wav`, `coinPickup.wav`, `gameOver.wav`) + 1 música de fondo (`music.mp3`). Wired en `AudioManager` slots existentes.
+
+9. **Atlas de fuente regenerado** (`9a55183`) tras añadir glyphs nuevos al UI (texto `SHOP`, `EQUIPPED`, `+N coins`, etc.). Sin esto, los TMP texts mostrarían `□` (placeholder).
+
+10. **`QualitySettings` migrados a `serializedVersion: 3`** (auto por Unity 2022.3 al abrir; commit del cambio explícito para que el repo no tenga drift).
+
+### Decisiones técnicas
+
+- **Caída hand-rolled, no Rigidbody.** Activar Rigidbody en cada cubo del pool añade overhead de PhysX por cubo (>50 cuerpos rígidos activos en cualquier frame), interfiere con el raycast de ground check de la bola (la bola podría detectar como "ground" un cubo cayendo) y obliga a desactivar `useGravity` y `isKinematic` con timing preciso al recycle. Hand-rolled: 3 floats, un `transform.position.y -=` y un cap, sin side effects.
+- **Watermark `FallTriggerIndex` por segmento, no por cubo.** Alternativa: bool por cubo (`_hasBeenTriggered`). El watermark es O(1) para avanzar (un `++`) y O(1) para chequear si "ya pasé este cubo" (`i < watermark`). Bool por cubo pediría lookup y allocs de Dictionary o componente extra.
+- **`MaxFallDistance = 60`** como red de seguridad — a 18 u/s², 60 unidades son ~2.5s de caída. Suficiente tiempo para que el pool recicle el cubo en flujo normal; si la run acaba justo antes del recycle, el cubo se queda quieto fuera de cámara en lugar de seguir integrando para siempre.
+- **Gemas barridas una vez por frame, fuera del loop de segmentos**, para que la complejidad no se multiplique por el número de segmentos descartados en un frame ráfaga (en transiciones de menu → playing).
+- **Build portrait 608×1080.** Ratio 9:16 ≈ iPhone moderno. El brief del test técnico no especificaba plataforma, pero el ZigZag original es mobile-first; un build de PC en portrait es la opción que mejor demuestra que el código está listo para target móvil sin tocar nada del input layer (el `InputHandler` ya mapea touch a mouse click vía Unity).
+- **`_distanceMultiplier = 1`.** En playtest con 3 los scores subían a 5 cifras en 30 segundos; lectura ruidosa. Con 1, los hitos (50, 100, 200) coinciden con los palette swaps y el progreso se siente medible.
+
+### Pendiente — setup manual en Unity
+
+1. **Añadir `PlatformFaller` al prefab `P_PlatformCube`** (`Inspector → Add Component → Platform Faller`). Default `_gravity = 18`.
+2. Verificar en `SO_GameConfig.asset` que `Platform Fall Start Behind = 1.5`.
+3. Verificar slots del `AudioManager` apuntan a los clips importados.
+
+### Verificación
+
+- Play → la bola avanza → los cubos que quedan ~2 detrás se desploman hacia abajo, salen de la vista en ~1s. La bola nunca cae sobre un cubo que está cayendo (el threshold respeta el ground check).
+- Profiler: cero `Instantiate` después del primer frame, cero allocs en `Update` del `PathGenerator`. El pool sigue estable en ~50-60 cubos activos.
+- Build de Windows produce un `.exe` con resolución 608×1080 portrait. Audio suena en build, no solo en editor.
+- HUD score sube ~1 punto por unit de progreso forward; los palette swaps caen exactamente cada 50 puntos.
+
+### Próxima iteración (planteamiento)
+
+Cerrar el deliverable: README (en/es), `.gitignore` verificado, capturas para la entrega.
+
+### Addendum mismo día — música de fondo
+
+Añadida música de fondo (`Assets/Audio/music.mp3`) **sin tocar código**. La música vive como un segundo `AudioSource` en el GameObject `Main Camera`, separada del que ya lleva el `AudioManager` (que sólo dispara SFX por `PlayOneShot`):
+
+- `Audio Clip = music.mp3`.
+- `Play On Awake = true` — la música arranca al cargar la escena, sin esperar al primer tap.
+- `Loop = true` — track corto que cicla indefinidamente.
+- `Volume = 0.036` (~3.6%) — punto bajo deliberado para que los SFX (flip, gema, game-over) sigan siendo el foco perceptual. Subirlo es un cambio de un valor en el inspector, no de código.
+- `Spatialize = false`, `Spatial Blend = 0` — 2D pura, el listener (cámara) no genera paneo.
+- Sin `OutputAudioMixerGroup` — el prototipo no usa AudioMixer todavía.
+
+### Decisiones técnicas
+
+- **`AudioSource` separado para música, no compartido con `AudioManager`.** El `AudioManager` usa `PlayOneShot` con volumen per-clip; mezclar música looping en el mismo source forzaría a cortar la música cada vez que suene un SFX (`PlayOneShot` no interrumpe lo que ya suena, pero el `clip` por defecto del source sí queda en juego para futuras `Play()`). Dos `AudioSource` en el mismo GameObject es la solución estándar de Unity y mantiene cada flujo de audio aislado.
+- **Música en el `Main Camera`, no en un GameObject `Music` aparte.** La cámara ya lleva el `AudioListener` por defecto (cualquier `AudioSource` 2D sonará igual desde cualquier posición), y los `AudioSource` en el listener tienen lookup directo sin lookups extra. Para una música 2D global no aporta nada montar otro GameObject.
+- **Sin script de fade-in / fade-out.** YAGNI hasta que el playtest lo pida. Si más adelante hace falta cortar la música al GameOver y volverla al Retry, se introducirá un `MusicController` mínimo que escuche `SO_OnGameOver` / `SO_OnGameReset` y ajuste `AudioSource.volume`.
+
+### Pendiente — setup manual
+
+Ninguno. El componente ya está en la escena y se serializa con `SampleScene.unity`. Si quieres rebalancear el mix, sólo edita el campo `Volume` del `AudioSource` de música en el Inspector del `Main Camera`.

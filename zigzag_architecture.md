@@ -47,8 +47,8 @@ No es documentación de API generada del código. No reemplaza los comentarios `
 └────────────────────────────────────────────────────────────┘
                           ▲
 ┌────────────────────────────────────────────────────────────┐
-│  Gameplay   Player · World · Collectibles · Powerups ·      │
-│             Scoring · CameraSystem                          │  → publica eventos
+│  Gameplay   Player · World · Collectibles · Economy ·       │
+│             Scoring · Cosmetics · Aesthetics · CameraSystem │  → publica eventos
 └────────────────────────────────────────────────────────────┘
                           ▲
 ┌────────────────────────────────────────────────────────────┐
@@ -75,6 +75,40 @@ Sirven de checklist permanente:
 
 ---
 
+### 2.4 Patrones de diseño elegidos antes de picar código
+
+`CLAUDE.md` §6 fija el catálogo de patrones obligatorios para sistemas no triviales y los anti-patrones a rechazar de plano. **Ese catálogo se escribió antes del primer `.cs` del repositorio** — los patrones no son hallazgos retrospectivos, son decisiones tomadas durante el diseño (este documento + el GDD) y aplicadas después al picar código.
+
+Patrones efectivamente aplicados en la implementación (mapeo patrón → clases reales del repo):
+
+| Patrón | Dónde vive | Por qué se eligió |
+|--------|-----------|-------------------|
+| **ScriptableObject como contenedor de datos** | `GameConfigSO`, `PaletteRulesSO`, `BallSkinSO`, `BallSkinCatalogSO` | Configuración editable sin recompilar, encapsulación natural (`private + serialized + get-only`), tunable por diseñador, hot-reload en editor. |
+| **Event Channel (SO Pub-Sub)** | 15 assets `SO_*` bajo `Assets/Settings/Events/` | Comunicación cross-system sin que sender y receiver se referencien directamente. Sustituye singletons y `FindObjectOfType`. |
+| **Observer (event C# nativo)** | `BallController.OnDirectionChanged` / `OnFell`, `InputHandler.OnTapped`, `Gem` callbacks | Variante local del pub-sub: cuando emisor y oyente viven en la misma capa/asmdef y no merece la pena ceremonialmente un asset SO. Suscripción simétrica en `OnEnable`/`OnDisable`. |
+| **Finite State Machine (FSM)** | `GameStateMachine` con `enum GameState { Menu, Playing, GameOver }` | Tres estados, transiciones explícitas. Una FSM hand-rolled es más legible que arrastrar un framework. |
+| **Object Pool** | `PlatformPool`, `GemPool` (vía `UnityEngine.Pool.ObjectPool<T>` de 2022 LTS) | Cero `Instantiate`/`Destroy` en hot path. Prewarming en `Awake`. ADR-002. |
+| **Template Method (jerarquía genérica)** | `GameEventSO<T>` abstract → `IntGameEventSO`, `StringGameEventSO` | Una sola implementación de Register/Unregister/Raise; los payloads concretos sólo declaran el tipo. |
+| **Strategy (data-driven)** | `BallSkinSO` (intercambio de `Material`), `PaletteRulesSO` (intercambio de rangos HSV) | La "estrategia" se selecciona arrastrando otro asset, no instanciando otra clase. Workflow editorial puro. |
+| **Catálogo (Repository simplificado)** | `BallSkinCatalogSO` con `GetById(string)` | Lookup centralizado sin Dictionary corriendo en runtime; el array serializado preserva orden de display = orden de tienda. |
+| **Composition Root / Bootstrap** | `GameBootstrap` con `[DefaultExecutionOrder(-1000)]` | Único punto de validación de refs serializadas vía `Debug.Assert`. No instancia ni resuelve nada — la composición ya está en la escena; el bootstrap sólo grita si falta algo antes del primer frame. |
+| **MVP-lite (View ⇄ Presenter ⇄ Model)** | `UIController` (View), canales SO (Presenter), `ScoreManager`/`CoinsWallet`/`SkinInventory` (Model) | La View sólo lee y actualiza widgets; nunca contiene lógica de negocio. El Model nunca conoce a la View — empuja por canal. |
+| **Composition over inheritance** | Cada `MonoBehaviour` tiene una responsabilidad. La bola no extiende nada; recibe colaboradores por `[SerializeField]`. | Inheritance solo cuando hay verdadero `is-a`; en gameplay arcade rara vez ocurre. |
+| **Pure helpers (sin estado)** | `ScoreCalculator`, `CameraFollowMath`, `PaletteSampler` | `static class` sin Unity lifecycle. Testeable en EditMode sin mocks; separa la aritmética de los side-effects (raises, persistencia). |
+
+Anti-patrones explícitamente evitados (sólo lista — la justificación está en `CLAUDE.md` §6):
+
+- God `GameManager`.
+- Singletons globales (`Instance ??= this`).
+- `static` mutable state.
+- `SendMessage`, `BroadcastMessage`, `FindObjectOfType`, `GameObject.Find` fuera de bootstrap/editor.
+- Lógica de negocio en editor scripts.
+- `Resources.Load` en hot paths.
+
+El orden cronológico fue: GDD → este documento de arquitectura → `CLAUDE.md` con el catálogo de patrones obligatorios → primer commit de código. Cada iteración posterior añade clases que encajan en uno de los patrones de la tabla; si una iteración requiere un patrón nuevo, se introduce explícitamente en su spec con justificación (los planes de `docs/superpowers/plans/` lo documentan).
+
+---
+
 ## 3. Convenciones de código (alineadas a CLAUDE.md §4 y §5)
 
 ### 3.1 Naming — única tabla de referencia
@@ -83,7 +117,7 @@ Sirven de checklist permanente:
 | ------------------------- | ----------------------------------------- | ------------------------------------------------------ |
 | Namespace                 | `ZigZag.<Layer>.<Feature>`                | `ZigZag.Runtime.Gameplay.Player`                       |
 | Clase / Struct / Enum     | `PascalCase`                              | `BallController`                                       |
-| Interface                 | `IPascalCase`                             | `IPowerup`                                             |
+| Interface                 | `IPascalCase`                             | `IDamageable`                                          |
 | Método / Propiedad        | `PascalCase`                              | `StartMoving`, `CurrentSpeed`                          |
 | Campo privado             | `_camelCase`                              | `_rigidbody`                                           |
 | Campo serializado         | `[SerializeField] private` + `_camelCase` | `[SerializeField] private float _forwardSpeed;`        |
@@ -149,11 +183,13 @@ Assets/
 │   │   ├── Core/                        # GameBootstrap, GameStateMachine, GameState (enum)
 │   │   ├── Gameplay/
 │   │   │   ├── Player/                  # BallController
-│   │   │   ├── World/                   # PathGenerator, Segment, PlatformPool
+│   │   │   ├── World/                   # PathGenerator, Segment, PlatformPool, PlatformFaller
 │   │   │   ├── Collectibles/            # Gem, GemSpawner, GemPool
-│   │   │   ├── Powerups/                # IPowerup, MagnetPowerup, PowerupManager, PowerupPool
-│   │   │   ├── Scoring/                 # ScoreManager, ScorePersistence
-│   │   │   └── CameraSystem/            # CameraFollow
+│   │   │   ├── Economy/                 # CoinsWallet
+│   │   │   ├── Scoring/                 # ScoreManager, ScoreCalculator
+│   │   │   ├── Cosmetics/               # BallSkinSO, BallSkinCatalogSO, SkinInventory, BallSkinApplier
+│   │   │   ├── Aesthetics/              # PaletteRulesSO, PaletteSampler, PaletteController
+│   │   │   └── CameraSystem/            # CameraFollow, CameraFollowMath
 │   │   ├── Input/                       # InputHandler
 │   │   ├── UI/                          # UIController, MenuPanel, HUDPanel, GameOverPanel
 │   │   ├── Audio/                       # AudioManager
@@ -164,7 +200,7 @@ Assets/
 │   └── Tests/
 │       ├── EditMode/
 │       └── PlayMode/
-├── Prefabs/                             # P_Ball, P_PlatformCube, P_Gem, P_Magnet, ...
+├── Prefabs/                             # P_Ball, P_PlatformCube, P_Gem, P_ShopRow
 ├── Scenes/                              # S_Main.unity
 ├── Settings/                            # SO_GameConfig.asset + assets de eventos SO_*
 └── VFX/
@@ -251,15 +287,21 @@ public sealed class IntGameEventSO : GameEventSO<int> { }
 | Asset                       | Tipo                | Disparado por                | Suscriptores típicos                              |
 | --------------------------- | ------------------- | ---------------------------- | ------------------------------------------------- |
 | `SO_OnGameStarted`          | `GameEventSO`       | `GameStateMachine`           | `BallController`, `PathGenerator`, `UIController` |
-| `SO_OnGameOver`             | `GameEventSO`       | `GameStateMachine`           | `BallController`, `PathGenerator`, `UIController`, `AudioManager`, `ScoreManager`, `PowerupManager` |
+| `SO_OnGameOver`             | `GameEventSO`       | `GameStateMachine`           | `PathGenerator`, `UIController`, `AudioManager`, `ScoreManager` |
 | `SO_OnGameReset`            | `GameEventSO`       | `GameStateMachine`           | Todos los sistemas con estado mutable             |
-| `SO_OnScoreChanged`         | `IntGameEventSO`    | `ScoreManager`               | `UIController` (HUD)                              |
+| `SO_OnRetryRequested`       | `GameEventSO`       | `UIController` (botón Retry) | `GameStateMachine`                                |
+| `SO_OnScoreChanged`         | `IntGameEventSO`    | `ScoreManager`               | `UIController` (HUD), `PaletteController`         |
 | `SO_OnBestScoreChanged`     | `IntGameEventSO`    | `ScoreManager`               | `UIController` (Menu, GameOver)                   |
-| `SO_OnGemCollected`         | `IntGameEventSO`    | `Gem`                        | `ScoreManager`, `AudioManager`, VFX               |
-| `SO_OnPowerupActivated`     | `GameEventSO`       | `PowerupManager`             | `UIController` (HUD indicator), `AudioManager`    |
-| `SO_OnPowerupExpired`       | `GameEventSO`       | `PowerupManager`             | `UIController`                                    |
-| `SO_OnCoinsChanged`         | `IntGameEventSO`    | `CoinsWallet`                | `UIController` (HUD wallet display)               |
+| `SO_OnGemCollected`         | `IntGameEventSO`    | `Gem`                        | `CoinsWallet`, `AudioManager`                     |
+| `SO_OnCoinsChanged`         | `IntGameEventSO`    | `CoinsWallet`                | `UIController`, `ShopPanel`                       |
 | `SO_OnSessionCoinsChanged`  | `IntGameEventSO`    | `CoinsWallet`                | `UIController` (GameOver `+N coins`)              |
+| `SO_OnDirectionChanged`     | `GameEventSO`       | `BallController.FlipDirection` | `AudioManager`                                  |
+| `SO_OnSkinPurchaseRequested`| `StringGameEventSO` | `ShopRowView`                | `SkinInventory`                                   |
+| `SO_OnSkinEquipRequested`   | `StringGameEventSO` | `ShopRowView`                | `SkinInventory`                                   |
+| `SO_OnSkinEquipped`         | `StringGameEventSO` | `SkinInventory`              | `BallSkinApplier`, `ShopPanel`                    |
+| `SO_OnInventoryChanged`     | `GameEventSO`       | `SkinInventory`              | `ShopPanel`                                       |
+| `SO_OnShopOpened`           | `GameEventSO`       | `ShopPanel`                  | `InputHandler`                                    |
+| `SO_OnShopClosed`           | `GameEventSO`       | `ShopPanel`                  | `InputHandler`                                    |
 
 **Locales (`event` C# en el componente emisor):**
 
@@ -313,8 +355,7 @@ Bola sale del camino y position.y < threshold
             └─> SO_OnGameOver.Raise()
                  ├─> ScoreManager.SaveBestIfHigher → SO_OnBestScoreChanged.Raise
                  ├─> PathGenerator: detiene generación
-                 ├─> BallController: detiene movimiento
-                 ├─> PowerupManager: limpia powerup activo
+                 ├─> BallController: detiene movimiento (vía GameStateMachine.StopMoving)
                  ├─> UIController: panel GameOver
                  └─> AudioManager: PlayDeath
 ```
@@ -354,12 +395,6 @@ namespace ZigZag.Runtime.Data
         [SerializeField, Range(0f, 1f)] private float _gemSpawnProbability = 0.3f;
         [SerializeField] private int _gemValue = 10;
 
-        [Header("Powerups")]
-        [SerializeField, Range(0f, 1f)] private float _magnetSpawnProbability = 0.05f;
-        [SerializeField] private float _magnetDuration = 5f;
-        [SerializeField] private float _magnetRadius = 4f;
-        [SerializeField] private float _magnetAttractSpeed = 8f;
-
         [Header("Score")]
         [SerializeField] private int _distanceMultiplier = 1;
 
@@ -373,7 +408,6 @@ namespace ZigZag.Runtime.Data
         [Header("Pooling")]
         [SerializeField] private int _platformPoolInitialSize = 50;
         [SerializeField] private int _gemPoolInitialSize = 20;
-        [SerializeField] private int _powerupPoolInitialSize = 5;
 
         // Propiedades de sólo lectura — encapsulación obligatoria (CLAUDE §5).
         public float InitialSpeed             => _initialSpeed;
@@ -389,17 +423,12 @@ namespace ZigZag.Runtime.Data
         public int GenerationSeed             => _generationSeed;
         public float GemSpawnProbability      => _gemSpawnProbability;
         public int GemValue                   => _gemValue;
-        public float MagnetSpawnProbability   => _magnetSpawnProbability;
-        public float MagnetDuration           => _magnetDuration;
-        public float MagnetRadius             => _magnetRadius;
-        public float MagnetAttractSpeed       => _magnetAttractSpeed;
         public int DistanceMultiplier         => _distanceMultiplier;
         public float CameraFollowSmoothTime   => _cameraFollowSmoothTime;
         public float CameraOrthographicSize   => _cameraOrthographicSize;
         public float FreezeFrameOnDeath       => _freezeFrameOnDeath;
         public int PlatformPoolInitialSize    => _platformPoolInitialSize;
         public int GemPoolInitialSize         => _gemPoolInitialSize;
-        public int PowerupPoolInitialSize     => _powerupPoolInitialSize;
     }
 }
 ```
@@ -608,56 +637,7 @@ Namespace `CameraSystem` (no `Camera`) para no colisionar con `UnityEngine.Camer
 
 **Regla de movimiento (ADR-014):** la cámara avanza **solo** a lo largo del eje global forward `(-1, 0, 1)/√2`. La componente perpendicular del desplazamiento del target se descarta — el frame se queda quieto lateralmente y la bola serpentea visiblemente por la pantalla, reproduciendo el comportamiento del ZigZag original. La Y se bloquea a la Y inicial de la cámara para que no persiga la bola en su caída. La matemática vive en `CameraFollowMath` (estática, sin Unity lifecycle, cubierta por tests EditMode en `Assets/Code/Tests/EditMode/Gameplay/CameraSystem/CameraFollowMathTests.cs`).
 
-### 7.11 `IPowerup` (`ZigZag.Runtime.Gameplay.Powerups`)
-
-```csharp
-namespace ZigZag.Runtime.Gameplay.Powerups
-{
-    public interface IPowerup
-    {
-        string Id { get; }
-        float Duration { get; }
-        void Activate(BallController ball);
-        void Deactivate();
-        void Tick(float deltaTime);
-    }
-}
-```
-
-### 7.12 `MagnetPowerup` (`ZigZag.Runtime.Gameplay.Powerups`)
-
-Clase pura, no `MonoBehaviour`. Activada por `PowerupManager`.
-
-```csharp
-public sealed class MagnetPowerup : IPowerup
-{
-    public string Id => "magnet";
-    public float Duration { get; }
-    public MagnetPowerup(GameConfigSO config) { ... }
-    public void Activate(BallController ball);
-    public void Deactivate();
-    public void Tick(float deltaTime);
-}
-```
-
-**Funcionamiento:** `Tick` consulta un registro de gemas activas (mantenido por `GemPool` o `GemSpawner`) en radio y las mueve con `Vector3.MoveTowards`.
-
-### 7.13 `PowerupManager` (`ZigZag.Runtime.Gameplay.Powerups`)
-
-```csharp
-[DisallowMultipleComponent]
-public sealed class PowerupManager : MonoBehaviour
-{
-    public IPowerup ActivePowerup { get; private set; }
-    public float TimeRemaining { get; private set; }
-    public bool IsActive => ActivePowerup != null;
-
-    public void Activate(IPowerup powerup);
-    public void DeactivateCurrent();
-}
-```
-
-Suscrito a `SO_OnGameOver` para limpiar el powerup activo y a un evento de pickup local del prefab de powerup.
+> **Nota — secciones 7.11 a 7.13 retiradas.** Originalmente contenían `IPowerup`, `MagnetPowerup` y `PowerupManager`. El powerup imán se descopeó en la iteración 5 (ver memoria del proyecto `project_scope_magnet_skipped`); en su lugar entró la tienda de skins. Las secciones se eliminan para no documentar clases que no existen en el repo. Los números 7.11/7.12/7.13 quedan **libres**; las siguientes secciones (7.14 `UIController` en adelante) conservan su numeración histórica para no romper referencias cruzadas con el devlog (`§7.17 CoinsWallet`, `§7.18 GameBootstrap`).
 
 ### 7.14 `UIController` (`ZigZag.Runtime.UI`)
 
@@ -693,7 +673,7 @@ namespace ZigZag.Runtime.Audio
 
 Suscrito a `InputHandler.OnTapped` (local), `SO_OnGemCollected`, `SO_OnGameOver`.
 
-### 7.16 Pools (`ZigZag.Runtime.Gameplay.World` / `.Collectibles` / `.Powerups`)
+### 7.16 Pools (`ZigZag.Runtime.Gameplay.World` / `.Collectibles`)
 
 Wrappers ligeros sobre `UnityEngine.Pool.ObjectPool<T>`.
 
@@ -706,7 +686,7 @@ public sealed class PlatformPool : MonoBehaviour
 }
 ```
 
-Mismo patrón para `GemPool` y `PowerupPool`. Internamente: `ObjectPool<GameObject>` con `createFunc`, `actionOnGet`, `actionOnRelease`, `actionOnDestroy`.
+Mismo patrón para `GemPool`. Internamente: `ObjectPool<GameObject>` con `createFunc`, `actionOnGet`, `actionOnRelease`, `actionOnDestroy`.
 
 ### 7.17 `CoinsWallet` (`ZigZag.Runtime.Gameplay.Economy`)
 
@@ -836,13 +816,13 @@ Cada decisión es defendible. Si en la review preguntan "¿por qué X?", la resp
 
 **Consecuencias:** transiciones instantáneas. La UI muestra/oculta paneles.
 
-### ADR-009 — Interfaz `IPowerup` aunque solo haya un powerup
+### ADR-009 — Powerups fuera de scope (decisión revertida)
 
-**Decisión:** definir `IPowerup`, `MagnetPowerup` la implementa.
+**Decisión final:** los powerups (originalmente: imán) **no entran en el prototipo**. El slot se reasignó a la iteración 5 "Tienda + skins" (ver `project_scope_magnet_skipped` y devlog iter 5).
 
-**Justificación:** "tipos de powerups" es eje de cambio probable. Coste ~10 líneas. Añadir un segundo powerup pasa a ser una clase nueva sin tocar `PowerupManager`.
+**Justificación:** dos semanas no daban para un sistema de powerups completo *más* el polish visual. La tienda demuestra el mismo punto (extensibilidad de la arquitectura sin tocar gameplay) con menos superficie de código y entrega valor jugable inmediato (skins desbloqueables).
 
-**Consecuencias:** pensamiento extensible sin sobreingeniería.
+**Consecuencias:** el número ADR-009 queda ocupado por esta nota para preservar la numeración del resto de ADRs (citados desde el devlog). No existen `IPowerup`, `MagnetPowerup` ni `PowerupManager` en el repo.
 
 ### ADR-010 — `GameStateMachine` MonoBehaviour como coordinador (no estática, no singleton)
 
@@ -888,7 +868,7 @@ Cada decisión es defendible. Si en la review preguntan "¿por qué X?", la resp
 - Crear `ICurrency` + `CurrencyService` genérico: YAGNI con una sola currency.
 
 **Consecuencias:**
-- Score y wallet evolucionan de forma independiente; añadir powerups que multipliquen coins (ver future considerations del spec) no toca `ScoreManager`.
+- Score y wallet evolucionan de forma independiente; añadir cosméticos pagados con coins (iteración 5: tienda + skins) no toca `ScoreManager`.
 - Dos PlayerPrefs keys (`"BestScore"`, `"Coins"`) en lugar de una. Trivial.
 - Cuando llegue la tienda, `CoinsWallet` añade `bool TrySpend(int)` con guard de fondos suficientes, sin tocar el resto del sistema.
 
@@ -899,9 +879,9 @@ Cada decisión es defendible. Si en la review preguntan "¿por qué X?", la resp
 | Principio                          | Aplicación en este proyecto                                                                                                       |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | **S** — Single Responsibility      | `BallController` mueve; `ScoreManager` cuenta; `UIController` muestra; `PathGenerator` genera. Ninguno hace dos cosas.            |
-| **O** — Open/Closed                | Añadir un powerup nuevo = clase nueva que implementa `IPowerup`. `PowerupManager` no se toca.                                     |
-| **L** — Liskov Substitution        | Cualquier `IPowerup` es intercambiable en `PowerupManager.Activate(...)`.                                                         |
-| **I** — Interface Segregation      | `IPowerup` tiene 4 métodos, no más. Sin interfaces "fat".                                                                         |
+| **O** — Open/Closed                | Añadir un skin nuevo = crear un `.asset` `BallSkinSO` + arrastrar al catalog. `SkinInventory`, `BallSkinApplier` y `ShopPanel` no se tocan. Añadir un canal de evento nuevo = `GameEventSO<T>` con el `T` adecuado, sin tocar el dispatcher.                                     |
+| **L** — Liskov Substitution        | Cualquier `GameEventSO<T>` concreto (`IntGameEventSO`, `StringGameEventSO`) es intercambiable donde se espera un canal con ese payload. El consumidor sólo conoce la base abstracta. |
+| **I** — Interface Segregation      | `GameEventSO` tiene 3 métodos (`Raise`, `Register`, `Unregister`) y `GameEventSO<T>` añade los tipados. Sin interfaces "fat".     |
 | **D** — Dependency Inversion       | `BallController` depende de `GameConfigSO` (abstracción de datos). Sistemas se inyectan por inspector, no se crean internamente. |
 
 ---
@@ -938,9 +918,11 @@ Tests **básicos** (decisión explícita: prioridad baja en un prototipo de 2 se
 ### 12.1 Qué se testea
 
 **EditMode (pure C#):**
-- `GameConfigSO` — propiedades read-only devuelven los valores serializados.
-- `ScoreManager` — aritmética: gemas suman correctamente; reset deja en 0; `SaveBestIfHigher` solo sobrescribe si mejora.
-- `MagnetPowerup` — `Tick` decrementa `TimeRemaining`; expira en `Duration` ticks.
+- `ScoreCalculator` — proyección de distancia sobre `GlobalForward`, clamp en cero, multiplier.
+- `CameraFollowMath` — proyección de seguimiento sobre el eje forward, Y bloqueada, perpendicular descartada.
+- `CoinsWallet.TrySpend` — éxito, fondos insuficientes, cantidad no positiva.
+- `SkinInventory.ParseOwnedCsv` — IDs conocidos, IDs desconocidos descartados, whitespace ignorado, CSV vacío/null.
+- `PaletteSampler` — hue complementario, distancia circular, distancia mínima respetada.
 
 **PlayMode (MonoBehaviour / coroutines):**
 - `BallController` — al disparar `OnTapped`, `CurrentDirection` se invierte en el frame siguiente.
@@ -1061,7 +1043,7 @@ Los subagentes están definidos en [`.claude/agents/`](.claude/agents/) y catalo
 | Detección de "estoy en suelo" inestable                                 | Raycast con `LayerMask` específica de plataformas.                                                          |
 | Cámara con jitter                                                       | `SmoothDamp` parametrizado, no hija de la bola.                                                             |
 | Determinismo roto entre máquinas                                        | Generación con `System.Random` con seed (no `UnityEngine.Random`).                                          |
-| Powerup activo al hacer GameOver no se limpia                           | `PowerupManager` se suscribe a `SO_OnGameOver` y limpia.                                                    |
+| Coroutine de freeze-frame deja `Time.timeScale = 0` tras unload         | `GameStateMachine.OnDisable` detiene la coroutine y restaura `Time.timeScale = 1f` defensivamente.          |
 | `GameEventSO` con suscripciones residuales tras recargar la escena      | `OnEnable` / `OnDisable` en cada listener garantiza limpieza. En una sola escena no se recarga, sin riesgo. |
 | Score `int` puede overflow en partidas eternas                          | `long` no necesario para un endless realista. Si pasa, es un buen problema.                                 |
 | asmdef mal configuradas haciendo que el editor code entre al player     | Test manual: build de Windows con `ZigZag.Editor` en `includePlatforms: [Editor]`.                          |

@@ -41,7 +41,7 @@ Este desarrollo simula un **sprint real** dentro de un estudio:
 | Semana | Foco | Resultado al final |
 |---|---|---|
 | **Semana 1** | Arquitectura + construcción funcional | Juego jugable de principio a fin. Visualmente austero pero **completo** y con código revisable |
-| **Semana 2** | Pulido + entregable | Game feel, visuales, audio, powerup, README, build final |
+| **Semana 2** | Pulido + entregable | Game feel, visuales, audio, tienda + skins, README, build final |
 
 **Principio rector:** la semana 1 construye limpio desde el día uno. La semana 2 NO arregla código de la semana 1, solo añade polish encima.
 
@@ -101,16 +101,17 @@ Estos pilares son la vara de medir para cualquier decisión. Si una feature no r
 
 - Spawn: al generar un tramo, con probabilidad **30%**, una gema se coloca sobre un cubo aleatorio del tramo.
 - Visual: `Cube` rotado 45° (queda como octaedro), material rosa con emission.
-- Trigger collider. Al `OnTriggerEnter` con la bola: **+1 moneda** a la wallet persistente (no suma al score), partículas, vuelta al pool. El valor por gema (`_gemValue` en `GameConfigSO`) es configurable; powerups futuros podrán multiplicarlo temporalmente.
+- Trigger collider. Al `OnTriggerEnter` con la bola: **+1 moneda** a la wallet persistente (no suma al score), partículas, vuelta al pool. El valor por gema (`_gemValue` en `GameConfigSO`) es configurable.
 - No bloquean ni desvían a la bola.
 
-### 5.6 Powerup: Imán (incluido en el alcance)
+### 5.6 Tienda + skins de bola (reemplaza al powerup imán originalmente planeado)
 
-- **Efecto:** atrae gemas en un radio R hacia la bola durante T segundos.
-- **Spawn:** muy raro, ~5% por tramo, sustituyendo el slot de gema.
-- **Visual:** octaedro dorado con emission amarilla.
-- **Duración:** 5 segundos.
-- **Implementación:** mediante interfaz `IPowerup` para que añadir powerups futuros sea trivial. Detalle en documento de arquitectura.
+- **Decisión de scope:** el powerup imán se descopeó en favor de una **tienda de skins cosméticos**. Justificación: misma demostración de arquitectura extensible (catálogo de SOs + canales de eventos), con menos superficie de código y un loop de progresión jugable (recoger gemas → gastar coins → desbloquear cosméticos).
+- **Acceso:** botón **SHOP** en el panel de Menu. El overlay suspende el tap de juego mediante canales `SO_OnShopOpened` / `SO_OnShopClosed`.
+- **Catálogo:** 5 skins por defecto (`Default`, `Red`, `Green`, `Blue`, `Gold`). El default es gratis y está siempre owned; los demás cuestan coins.
+- **Persistencia:** `PlayerPrefs` con las keys `OwnedSkins` (CSV) y `EquippedSkin`. Cada compra se persiste inmediatamente (no se difiere a un GameOver).
+- **Aplicación al juego:** `BallSkinApplier` vive en la bola, escucha `SO_OnSkinEquipped` y hace swap del `sharedMaterial`.
+- **Extensibilidad:** añadir un skin nuevo = crear un `BallSkinSO.asset` y arrastrarlo al `BallSkinCatalogSO`. Cero recompilaciones.
 
 ---
 
@@ -128,11 +129,8 @@ Estos son **puntos de partida para tunear en semana 2**, no valores finales. Viv
 | `segmentMinLength` | 3 | Cubos por tramo (mín) |
 | `segmentMaxLength` | 8 | Cubos por tramo (máx) |
 | `gemSpawnProbability` | 0.30 | Por tramo, no por cubo |
-| `magnetSpawnProbability` | 0.05 | Por tramo (excluye gema) |
-| `gemValue` | 10 pts | |
-| `magnetDuration` | 5 s | |
-| `magnetRadius` | 4 u | |
-| `distanceMultiplier` | 1 pt / u Z | |
+| `gemValue` | 1 coin | Coins por gema (rebalanceado iter 4.1: 10 → 1) |
+| `distanceMultiplier` | 1 pt / u forward | Rebalanceado iter 8: 3 → 1 |
 | `aheadBuffer` | 30 u | Camino visible por delante |
 | `behindBuffer` | 10 u | Antes de devolver al pool |
 | `cameraFollowSmoothTime` | 0.15 s | Para `SmoothDamp` |
@@ -171,8 +169,8 @@ Dos magnitudes separadas, persistidas independientemente.
 ### 7.3 Pooling
 
 - `UnityEngine.Pool.ObjectPool<GameObject>` (nativo desde Unity 2021).
-- Pools separados para cubos, gemas y powerups.
-- Tamaño inicial: 50 cubos, 20 gemas, 5 powerups.
+- Pools separados para cubos y gemas.
+- Tamaño inicial: 50 cubos, 20 gemas.
 - **Obligatorio.** Sin `Instantiate` / `Destroy` en runtime.
 
 ---
@@ -191,15 +189,16 @@ Flat shading minimalista. Sin texturas, solo materiales de color plano + emissio
 | Fondo | `#1A1A2E` |
 | Bola | `#0A0A0A` |
 | Gemas | `#E91E63` con emission `#FF4081` |
-| Powerup imán | `#FFB300` con emission `#FFD54F` |
 | Trail | Degradado rosa → transparente |
 | UI texto | `#FFFFFF` |
+| Skins de bola | `Default`, `Red`, `Green`, `Blue`, `Gold` (materiales individuales en `Assets/Art/`) |
+| Paleta cíclica (iter 7) | Sampleo HSV complementario cada 50 puntos — el `#5BA8E0` de plataformas es solo el color de boot |
 
 ### 8.3 Primitivas
 
 - Plataformas: `Cube` escalado.
 - Bola: `Sphere`.
-- Gemas y powerups: `Cube` rotado 45° en X y Z (octaedro visual).
+- Gemas: `Cube` rotado 45° en X y Z (octaedro visual).
 - Iluminación: una `Directional Light` + ambient. Sin sombras realistas.
 
 ### 8.4 Cámara
@@ -212,7 +211,7 @@ Flat shading minimalista. Sin texturas, solo materiales de color plano + emissio
 ### 8.5 Efectos (semana 2)
 
 - `TrailRenderer` en la bola, vida ~0.5s, color rosa fade.
-- `ParticleSystem` burst al coger gema/imán.
+- `ParticleSystem` burst al coger gema.
 - `ParticleSystem` burst al caer.
 - Freeze frame de 0.1s al morir.
 
@@ -225,7 +224,7 @@ Tres SFX, sin música. Fuentes: freesound.org (CC0) o generados con sfxr/jsfxr.
 | Evento | Tipo |
 |---|---|
 | Click (cambio de dirección) | Click corto, ~50ms |
-| Gema/powerup recogido | Tintineo agudo, ~200ms |
+| Gema recogida | Tintineo agudo, ~200ms |
 | Muerte | Impacto seco grave, ~300ms |
 
 ---
@@ -244,7 +243,7 @@ Tres SFX, sin música. Fuentes: freesound.org (CC0) o generados con sfxr/jsfxr.
 - Esquina superior izquierda: **score actual** grande (solo distancia).
 - Esquina superior derecha: **best score** pequeño.
 - Coins (wallet persistente) visible en una esquina secundaria (ej. inferior izquierda) con icono o etiqueta `Coins: N`.
-- Si hay powerup activo: pequeño indicador con tiempo restante.
+- (Sin powerups en este prototipo — el slot se reasignó a la tienda de skins en el Menu, ver §5.6.)
 
 ### 10.3 Panel Game Over
 
@@ -266,7 +265,7 @@ Estas son decisiones que el revisor verá y debe entender el porqué. Las técni
 | Decisión | Justificación |
 |---|---|
 | Modo infinito en lugar de niveles | Es lo que es ZigZag realmente. La generación procedural demuestra capacidad técnica relevante para el rol |
-| 1 solo powerup (imán) | Demuestra arquitectura extensible (interfaz `IPowerup`) sin sobreingeniería |
+| Tienda + skins en lugar de powerup imán | Decisión tomada en iter 5: la tienda demuestra extensibilidad (catálogo de SOs + canales de eventos) con menos código y entrega un loop de progresión jugable que el imán no tenía |
 | Sin tutorial | Si necesita explicación, el diseño falla en el pilar #2 (lectura instantánea) |
 | Tienda y gasto de currency fuera de scope este sprint | Las gemas otorgan currency persistente (`CoinsWallet`, key `"Coins"`), lista para una tienda futura. El gasto, los items y la UI de shop entran en una iteración posterior. Demuestra arquitectura extensible sin invertir tiempo en features que el test no requiere |
 | Cámara ortográfica, no perspectiva | Coincide con el original. Perspectiva añadiría problemas de oclusión |
@@ -280,7 +279,7 @@ Estas son decisiones que el revisor verá y debe entender el porqué. Las técni
 Lista explícita para resistir scope creep:
 
 - Menú principal con settings, créditos, idiomas.
-- Múltiples skins.
+- Powerups (imán u otros — descopeado en iter 5; ver §5.6).
 - Logros, leaderboards online, perfiles, nombres.
 - Tutorial, onboarding.
 - Música.
@@ -289,7 +288,6 @@ Lista explícita para resistir scope creep:
 - Multijugador.
 - Localización (todo en inglés en UI por simplicidad internacional, o todo en español, decisión a tomar antes del día 1).
 - Animaciones complejas de la bola.
-- Más de un powerup.
 - Sistema de logros / objetivos diarios.
 
 ---
@@ -304,7 +302,7 @@ Lista explícita para resistir scope creep:
 - [ ] Hay aceleración progresiva.
 - [ ] Score actual y best score se muestran y persisten.
 - [ ] Gemas se recogen y dan puntos.
-- [ ] Powerup imán funciona (sin efectos visuales pulidos aún).
+- [ ] Tienda de skins funciona (compra con coins, equipa, persiste).
 - [ ] Sin `Instantiate`/`Destroy` en runtime.
 - [ ] Estructura `Assets/Code/Runtime/...` y asmdefs creados según `zigzag_architecture.md` §4–§5.
 - [ ] Código revisable: nombres claros, sin magic numbers, eventos C# bien suscritos/desuscritos.
@@ -335,7 +333,7 @@ Lista explícita para resistir scope creep:
 | 3 | Generación procedural + pooling | Camino infinito, sin frame drops |
 | 4 | Gemas + score + persistencia | Loop básico: recoges gemas, score sube, best se guarda |
 | 5 | Estados del juego (Menu / Playing / GameOver) + UI mínima | Loop completo Menu → GameOver → Retry funcional |
-| 6 | Powerup imán + interfaz IPowerup | Powerup funcional, sin pulir visualmente |
+| 6 | Tienda + skins (reemplaza al powerup imán) | Catálogo de skins, `SkinInventory` con persistencia, overlay de shop en el Menu |
 | 7 | Buffer / testing / fix de bugs de semana 1 | Build interno "functional" |
 
 ### Semana 2 — Pulido
@@ -343,7 +341,7 @@ Lista explícita para resistir scope creep:
 | Día | Foco | Entregable interno |
 |---|---|---|
 | 8 | Cámara con SmoothDamp + Trail Renderer | El movimiento "se siente bien" |
-| 9 | Partículas (gema, imán, muerte) + freeze frame | Feedback visual completo |
+| 9 | Freeze frame al morir + rolling visual + paleta cíclica | Feedback visual completo |
 | 10 | Tuning de game feel (velocidad, aceleración, anchos) | Curva de dificultad ajustada |
 | 11 | Audio (3 SFX) + ajustes finales de UI | Build interno "polished" |
 | 12 | README.md + documentación | Documentación completa |
@@ -367,7 +365,7 @@ Para evitar dudas a mitad de sprint:
 - Configuración en `ScriptableObject GameConfigSO` con propiedades read-only (encapsulación obligatoria).
 - Estructura `Assets/Code/Runtime/...` con una `.asmdef` por carpeta + `ZigZag.Editor` y `ZigZag.Tests.*` aisladas.
 - Una sola escena (`S_Main.unity`).
-- 1 powerup (imán) incluido en alcance, expuesto vía interfaz `IPowerup` para extensibilidad.
+- Tienda de skins (reemplaza al powerup imán que estaba originalmente planeado; ver §5.6). Catálogo de `BallSkinSO` + `SkinInventory` con persistencia PlayerPrefs.
 - Modo infinito (no niveles).
 - Target build: PC Windows.
 - **Idioma:** código en inglés (identificadores, comentarios, logs, commits). Docs de diseño (`zigzag_gdd.md`, `zigzag_architecture.md`) en castellano.
@@ -384,7 +382,7 @@ Si surge tentación de cambiar una de estas, releer esta sección antes de tocar
 | Tuning de game feel se subestima | Reservar semana 2 entera, no recortarla |
 | Pooling mal implementado | Hacerlo el día 3, no posponerlo |
 | Detección de "estoy en el camino" inestable | Empezar con raycast simple, no complicar |
-| Sobreingeniería en arquitectura | Solo abstraer ejes de cambio reales (config, generación, powerups, input). Resto, directo |
+| Sobreingeniería en arquitectura | Solo abstraer ejes de cambio reales (config, generación, cosméticos, input). Resto, directo |
 | Audio consume tiempo excesivo | Cap duro de 2h buscando/generando SFX |
 | Build de Windows falla a última hora | Buildear desde el día 5, no esperar al 14 |
 | Olvido de desuscribir eventos → memory leaks | Regla: `OnEnable` += / `OnDisable` -=. Sin excepciones (ver documento de arquitectura) |
@@ -412,8 +410,8 @@ Si surge tentación de cambiar una de estas, releer esta sección antes de tocar
 ## Cómo jugar
 - Click izquierdo o Space: cambiar dirección
 - No te caigas del camino
-- Recoge gemas (rosa) para puntos extra
-- Recoge el imán (dorado) para atraer gemas durante 5s
+- Recoge gemas (rosa) — cada una suma 1 moneda a tu wallet persistente
+- Visita la tienda (botón **SHOP** del menú) para gastar las monedas en skins de bola
 
 ## Decisiones técnicas principales
 [Resumen + link al documento de arquitectura]
