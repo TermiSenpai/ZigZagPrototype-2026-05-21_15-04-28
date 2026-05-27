@@ -24,6 +24,13 @@ namespace ZigZag.Runtime.Gameplay.Player
     /// consistent with the ball and its trail. The inspector-authored
     /// <see cref="_burstColor"/> survives as the fallback used until the first
     /// skin-equipped event fires.
+    ///
+    /// This component also owns the ball's visibility around the death event:
+    /// the <see cref="MeshRenderer"/> sibling is disabled the moment the burst
+    /// plays (so the dead ball does not sit visible under the Game Over UI) and
+    /// re-enabled on <see cref="BallController.OnReset"/> when the player retries.
+    /// The mesh swap is the only renderer side-effect — the GameObject stays
+    /// active so every subscription on the ball survives the death/respawn cycle.
     /// </remarks>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(BallController))]
@@ -55,6 +62,7 @@ namespace ZigZag.Runtime.Gameplay.Player
         private static readonly int ColorProperty = Shader.PropertyToID("_Color");
 
         private BallController _ball;
+        private MeshRenderer _meshRenderer;
         private ParticleSystem _burst;
 
         // Shared across every BallDeathBurst instance (the prototype has one
@@ -65,18 +73,28 @@ namespace ZigZag.Runtime.Gameplay.Player
         private void Awake()
         {
             _ball = GetComponent<BallController>();
+            _meshRenderer = GetComponent<MeshRenderer>();
+            Debug.Assert(_meshRenderer != null, $"{nameof(BallDeathBurst)} expects a {nameof(MeshRenderer)} on the same GameObject so it can hide the ball during the death burst.", this);
             _burst = BuildDeathBurst();
         }
 
         private void OnEnable()
         {
-            if (_ball != null) _ball.OnFell += HandleFell;
+            if (_ball != null)
+            {
+                _ball.OnFell += HandleFell;
+                _ball.OnReset += HandleReset;
+            }
             if (_onSkinEquipped != null) _onSkinEquipped.Register(HandleSkinEquipped);
         }
 
         private void OnDisable()
         {
-            if (_ball != null) _ball.OnFell -= HandleFell;
+            if (_ball != null)
+            {
+                _ball.OnFell -= HandleFell;
+                _ball.OnReset -= HandleReset;
+            }
             if (_onSkinEquipped != null) _onSkinEquipped.Unregister(HandleSkinEquipped);
             if (_burst != null) _burst.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
         }
@@ -99,12 +117,22 @@ namespace ZigZag.Runtime.Gameplay.Player
 
         private void HandleFell()
         {
-            if (_burst == null) return;
-            // Snap the burst host to the ball's impact position so the burst
-            // is anchored where the ball left the path, not where the ball
-            // ends up after the freeze-frame.
-            _burst.transform.position = transform.position;
-            _burst.Play(true);
+            if (_burst != null)
+            {
+                // Snap the burst host to the ball's impact position so the burst
+                // is anchored where the ball left the path, not where the ball
+                // ends up after the freeze-frame.
+                _burst.transform.position = transform.position;
+                _burst.Play(true);
+            }
+            // Hide the ball mesh so it doesn't linger under the Game Over UI;
+            // the GameObject stays active so subscriptions survive the cycle.
+            if (_meshRenderer != null) _meshRenderer.enabled = false;
+        }
+
+        private void HandleReset()
+        {
+            if (_meshRenderer != null) _meshRenderer.enabled = true;
         }
 
         private ParticleSystem BuildDeathBurst()
