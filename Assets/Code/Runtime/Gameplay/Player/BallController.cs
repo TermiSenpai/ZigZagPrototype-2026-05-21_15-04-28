@@ -45,6 +45,7 @@ namespace ZigZag.Runtime.Gameplay.Player
 
         public event Action<Vector3> OnDirectionChanged;
         public event Action OnFell;
+        public event Action OnReset;
 
         public Vector3 CurrentDirection { get; private set; }
         public float CurrentSpeed { get; private set; }
@@ -129,6 +130,7 @@ namespace ZigZag.Runtime.Gameplay.Player
             _isOnXAxis = true;
             _hasFallen = false;
             _rollAxis = Vector3.Cross(Vector3.up, CurrentDirection);
+            OnReset?.Invoke();
         }
 
         /// <summary>

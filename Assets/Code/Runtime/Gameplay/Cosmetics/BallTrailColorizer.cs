@@ -1,5 +1,6 @@
 using UnityEngine;
 using ZigZag.Runtime.Events;
+using ZigZag.Runtime.Gameplay.Player;
 
 namespace ZigZag.Runtime.Gameplay.Cosmetics
 {
@@ -27,6 +28,7 @@ namespace ZigZag.Runtime.Gameplay.Cosmetics
     /// 0 so the tail fades smoothly through vertex-color interpolation.
     /// </remarks>
     [DisallowMultipleComponent]
+    [RequireComponent(typeof(BallController))]
     public sealed class BallTrailColorizer : MonoBehaviour
     {
         [Header("Dependencies")]
@@ -60,12 +62,15 @@ namespace ZigZag.Runtime.Gameplay.Cosmetics
         // BallDeathBurst use for their burst materials.
         private static Material _sharedTrailMaterial;
 
+        private BallController _ball;
+
         private void Awake()
         {
             Debug.Assert(_trail != null, $"{nameof(BallTrailColorizer)} requires a {nameof(TrailRenderer)} reference.", this);
             Debug.Assert(_catalog != null, $"{nameof(BallTrailColorizer)} requires a {nameof(BallSkinCatalogSO)} reference.", this);
             Debug.Assert(_onSkinEquipped != null, $"{nameof(BallTrailColorizer)} requires {nameof(_onSkinEquipped)}.", this);
 
+            _ball = GetComponent<BallController>();
             ApplyTrailMaterial();
             ApplyTrailAppearance();
         }
@@ -73,11 +78,21 @@ namespace ZigZag.Runtime.Gameplay.Cosmetics
         private void OnEnable()
         {
             if (_onSkinEquipped != null) _onSkinEquipped.Register(HandleSkinEquipped);
+            if (_ball != null) _ball.OnReset += HandleBallReset;
         }
 
         private void OnDisable()
         {
             if (_onSkinEquipped != null) _onSkinEquipped.Unregister(HandleSkinEquipped);
+            if (_ball != null) _ball.OnReset -= HandleBallReset;
+        }
+
+        // Wipes every trail vertex on respawn so the old fall trail does not
+        // linger at the death position and so the teleport from death point
+        // to spawn does not draw a long line across the world.
+        private void HandleBallReset()
+        {
+            if (_trail != null) _trail.Clear();
         }
 
         private void HandleSkinEquipped(string skinId)
