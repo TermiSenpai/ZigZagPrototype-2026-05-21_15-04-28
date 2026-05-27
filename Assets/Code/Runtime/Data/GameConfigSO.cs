@@ -156,5 +156,14 @@ namespace ZigZag.Runtime.Data
             if (_platformFallStartBehind < 0f) _platformFallStartBehind = 0f;
         }
 #endif
+
+        /// <summary>
+        /// Unit vector that points "down the path" in world space: the diagonal
+        /// between the two world axes the ball alternates along (-X and +Z).
+        /// Single source of truth shared by <c>PathGenerator</c> (ahead/behind
+        /// buffer math), <c>CameraFollow</c> (locked advance axis) and
+        /// <c>ScoreManager</c> (distance projection).
+        /// </summary>
+        public static readonly Vector3 GlobalForward = new Vector3(-1f, 0f, 1f).normalized;
     }
 }
