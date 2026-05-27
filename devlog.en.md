@@ -793,3 +793,24 @@ Close the three remaining checkboxes of `zigzag_gdd.md` §13.2 — trail behind 
 - Open the shop from the menu → the menu panel hides behind the overlay; close it → it comes back.
 - Profiler: zero `Material` allocs after the first Awake; the HUD's `TextMeshProUGUI` regenerates mesh only when the int to display changes (not 60×/s).
 - 24/24 EditMode tests green.
+
+### Same-day addendum — hide ball mesh during the burst + bump to 1.0.0
+
+Two micro-commits to close the release after iter-10 verification:
+
+1. **`BallDeathBurst` also owns the ball's visibility** (`d2d84bd`). In the first build the flow was: fall → 100 ms freeze-frame → orange burst at the impact point → Game Over panel on top → **dead ball still visible under the panel**, poking out between the texts. The ball is a sphere primitive with a solid-color material, so any overlap with the panel read as a weird blob. The fix: the burst disables `MeshRenderer.enabled` in `HandleFell` right after `Play(true)`, and subscribes to `BallController.OnReset` to re-enable it on respawn. Key decision: **not `SetActive(false)` on the GameObject**, only the `MeshRenderer` — disabling the GO would kill subscriptions from `BallSkinApplier`, `BallTrailColorizer` and the state machine itself, all of which would then miss the next Retry's `SO_OnGameReset` and the ball would never come back. Disabling only the renderer keeps the event cycle intact and respawn clean.
+
+   `[RequireComponent(typeof(BallController))]` already covered the controller dependency; a defensive `Debug.Assert` in `Awake` covers the rare case of someone mounting the component on a GameObject without a `MeshRenderer` — caught before runtime instead of as a `NullReferenceException`.
+
+2. **`bundleVersion` bumped `0.9 → 1.0.0`** (`7dfde18`). Release tag for the deliverable. Only `ProjectSettings.asset` changes.
+
+#### Technical decisions
+
+- **`MeshRenderer.enabled = false`, not `gameObject.SetActive(false)`.** Same reasoning `Gem` uses on pickup, same root cause: deactivating the GO kills children and subscriptions. Here the cost would be worse — the ball has 3+ components subscribed to SO channels and a `TrailRenderer` whose `Clear()` fires on respawn; losing those subscriptions would silently break the next run.
+- **Restoration via `OnReset`, not directly via `SO_OnGameReset`.** `BallController.OnReset` (local C# event) fires inside `ResetTo(position)` right after the ball is teleported back to spawn. Hooking it guarantees the mesh comes back in the exact frame the ball is already at its spawn position, not before (when it would still be mid-air from the last frozen frame).
+
+#### Verification
+
+- Fall → 100 ms freeze → the ball vanishes from the frame the moment the Game Over panel appears. Only the burst and the panel above it are visible.
+- Retry → the ball reappears at spawn with its skin, its trail cleared, and the camera already snapped to the origin.
+- Windows build → `Application.version` reports `1.0.0`.

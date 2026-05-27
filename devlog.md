@@ -793,3 +793,24 @@ Cerrar los tres checkboxes pendientes de `zigzag_gdd.md` §13.2 — trail visibl
 - Abrir la tienda desde el menú → el panel del menú se oculta detrás del overlay; cerrarla → vuelve.
 - Profiler: cero `Material` allocs después del primer Awake; el `TextMeshProUGUI` del HUD regenera mesh sólo cuando el entero a mostrar cambia (no 60 veces/segundo).
 - 24/24 tests EditMode en verde.
+
+### Addendum mismo día — ocultar mesh de la bola en el burst + bump a 1.0.0
+
+Dos micro-commits de cierre de release tras la verificación de iter 10:
+
+1. **`BallDeathBurst` se hace dueño también de la visibilidad de la bola** (`d2d84bd`). En la primera build el flujo era: caer → freeze-frame 100 ms → burst dorado en el punto de impacto → panel GameOver encima → **bola muerta visible aún bajo el panel**, asomando entre los textos. La bola era el sphere primitive con su material a color sólido, así que cualquier overlap con el panel se leía como un blob raro. El fix: el burst desactiva `MeshRenderer.enabled` en `HandleFell` justo después del `Play(true)`, y se suscribe a `BallController.OnReset` para reactivarlo en el respawn. Decisión clave: **no `SetActive(false)` del GameObject**, sino sólo del `MeshRenderer` — apagar el GO mataría las suscripciones de `BallSkinApplier`, `BallTrailColorizer` y la propia state machine, que dejarían de recibir el `SO_OnGameReset` del siguiente Retry y la bola no se restauraría jamás. Apagar sólo el renderer mantiene el ciclo de eventos intacto y el respawn limpio.
+
+   `[RequireComponent(typeof(BallController))]` ya cubría la dependencia con el controller; se añade un `Debug.Assert` defensivo en `Awake` por si alguien monta el componente sobre un GameObject sin `MeshRenderer` (caso raro pero el assert lo caza antes de runtime).
+
+2. **`bundleVersion` subido `0.9 → 1.0.0`** (`7dfde18`). Tag de release del entregable. Solo `ProjectSettings.asset` cambia.
+
+#### Decisiones técnicas
+
+- **`MeshRenderer.enabled = false`, no `gameObject.SetActive(false)`.** Misma lógica que `Gem` usa al recoger una gema, por la misma razón: desactivar el GO mataría hijos y suscripciones. Aquí el coste sería mayor — la bola tiene 3+ componentes suscritos a canales SO y un `TrailRenderer` cuya `Clear()` se dispara en el respawn; perder esas suscripciones rompería el siguiente run silenciosamente.
+- **Restauración por `OnReset`, no por `SO_OnGameReset` directo.** El event C# local de `BallController.OnReset` ya se dispara dentro de `ResetTo(position)`, justo después de teleportar la bola al spawn. Engancharse a él garantiza que el mesh vuelva exactamente en el frame en el que la bola está ya en su sitio, no antes (cuando todavía estaba en mid-air del último frame congelado).
+
+#### Verificación
+
+- Caer → freeze 100 ms → la bola desaparece del frame justo cuando aparece el panel GameOver. Sólo se ve el burst y el panel encima.
+- Retry → la bola reaparece en el spawn con su skin, su trail limpio y la cámara ya snapeada al origen.
+- Build de Windows → `Application.version` reporta `1.0.0`.

@@ -8,7 +8,7 @@ A ZigZag-style arcade prototype built as a junior game developer technical test,
 encapsulation discipline, ScriptableObject-driven architecture, and a complete set of decision documents
 (GDD, architecture ADRs, devlog) tracked alongside the code.
 
-`v0.9` · mobile-portrait 608×1080 · 1 scene · 0 third-party packages
+`v1.0` · mobile-portrait 608×1080 · 1 scene · 0 third-party packages
 
 [English](#english) · [Castellano](#castellano) · Devlog ([EN](devlog.en.md) · [ES](devlog.md)) · GDD ([EN](zigzag_gdd.en.md) · [ES](zigzag_gdd.md)) · Architecture ([EN](zigzag_architecture.en.md) · [ES](zigzag_architecture.md))
 
@@ -181,7 +181,7 @@ exact graph in `zigzag_architecture.en.md §5`.
 
 **From a Windows build:**
 
-1. `File → Build And Run` (the scene is already in `Build Settings`, version `0.9`, 608×1080 portrait).
+1. `File → Build And Run` (the scene is already in `Build Settings`, version `1.0`, 608×1080 portrait).
 
 **Run the EditMode tests:**
 
@@ -378,7 +378,7 @@ asserted.
 | Script | Role |
 |--------|------|
 | [`BallController`](Assets/Code/Runtime/Gameplay/Player/BallController.cs) | The ball. Constant-speed motion along one of two world axes (`-X` or `+Z`), `Physics.Raycast` ground check, hand-rolled fall, no-slip visual rolling (`ω = v/r`), idempotent `StartMoving`/`StopMoving`/`ResetTo(position)`/`FlipDirection()`. Raises three C# events — `OnDirectionChanged(Vector3)`, `OnFell`, `OnReset` (fired inside `ResetTo`, consumed by `BallTrailColorizer` to clear the trail on respawn) — plus an optional `SO_OnDirectionChanged` channel for presentation (audio). |
-| [`BallDeathBurst`](Assets/Code/Runtime/Gameplay/Player/BallDeathBurst.cs) | Builds a procedural one-shot `ParticleSystem` child in `Awake` (sphere shape, world-space, 36 particles, lifetime 0.65 s) and subscribes to `BallController.OnFell`. Snaps the burst host to the impact point before `Play(true)` so the burst stays anchored where the ball left the path, not where it ends up after the freeze-frame. Optional skin sync via `_catalog` + `_onSkinEquipped` slots — `null`-safe; if left empty, the inspector-authored `_burstColor` (white→orange) is used. |
+| [`BallDeathBurst`](Assets/Code/Runtime/Gameplay/Player/BallDeathBurst.cs) | Builds a procedural one-shot `ParticleSystem` child in `Awake` (sphere shape, world-space, 36 particles, lifetime 0.65 s) and subscribes to `BallController.OnFell`. Snaps the burst host to the impact point before `Play(true)` so the burst stays anchored where the ball left the path, not where it ends up after the freeze-frame. Also owns the ball's visibility around the death event: disables the sibling `MeshRenderer` on fall so the dead ball doesn't sit visible under the Game Over UI, and re-enables it on `BallController.OnReset` for respawn (the GameObject stays active so every subscription on the ball survives the cycle). Optional skin sync via `_catalog` + `_onSkinEquipped` slots — `null`-safe; if left empty, the inspector-authored `_burstColor` (white→orange) is used. |
 
 **How to use:** attach to the ball GameObject (Unity Sphere primitive at scale 1). Drag `SO_GameConfig`
 and the SO direction channel into its slots. The state machine drives the lifecycle — the ball never
@@ -526,7 +526,7 @@ The full devlog is at [`devlog.en.md`](devlog.en.md). One paragraph per iteratio
 | 7 | 2026-05-25 | **Palette cycling** | `PaletteRulesSO` + `PaletteSampler` + `PaletteController`. Every 50 score points the platform and camera colors lerp to a fresh complementary pair. |
 | 8 | 2026-05-26 | **Final polish** | `PlatformFaller` (passed platforms collapse), mobile-portrait 608×1080 build config, version `0.9`, audio assets imported, `_distanceMultiplier` rebalanced 3→1, looping background music wired as a self-contained second `AudioSource` on the `Main Camera` (no code). |
 | 9 | 2026-05-27 | **Gem feedback** | Procedural particle burst built in code on gem pickup (world-space, shared static material, zero new assets); `GemSpawner` tracks each gem's supporting cube and drives its Y in `LateUpdate` so gems fall in sync with collapsing platforms instead of hovering. |
-| 10 | 2026-05-27 | **Final polish (trail + death burst + GlobalForward)** | Native `TrailRenderer` on the ball with `BallTrailColorizer` (owns runtime material + width to defeat the magenta/oversized-trail trap, tints to the equipped skin, clears on respawn); procedural `BallDeathBurst` particle system at the impact point (mirror of `Gem` burst, optional skin sync); `GameConfigSO.GlobalForward` consolidated as single source of truth (closes the iter 4.2 debt); `CameraFollow` snaps back to origin on `SO_OnGameReset`; HUD score now animates with a multiplier-agnostic count-up using `Time.unscaledDeltaTime` (survives the freeze-frame); shop overlay hides the Menu panel while open. |
+| 10 | 2026-05-27 | **Final polish (trail + death burst + GlobalForward)** | Native `TrailRenderer` on the ball with `BallTrailColorizer` (owns runtime material + width to defeat the magenta/oversized-trail trap, tints to the equipped skin, clears on respawn); procedural `BallDeathBurst` particle system at the impact point (mirror of `Gem` burst, optional skin sync, hides the ball `MeshRenderer` on death and restores it on respawn so the dead ball doesn't sit visible under the Game Over UI); `GameConfigSO.GlobalForward` consolidated as single source of truth (closes the iter 4.2 debt); `CameraFollow` snaps back to origin on `SO_OnGameReset`; HUD score now animates with a multiplier-agnostic count-up using `Time.unscaledDeltaTime` (survives the freeze-frame); shop overlay hides the Menu panel while open. Bundle version bumped `0.9 → 1.0.0`. |
 
 ---
 
@@ -742,7 +742,7 @@ El documento de arquitectura lleva el grafo exacto en `zigzag_architecture.md §
 
 **Desde un build de Windows:**
 
-1. `File → Build And Run` (la escena ya está en `Build Settings`, version `0.9`, 608×1080 portrait).
+1. `File → Build And Run` (la escena ya está en `Build Settings`, version `1.0`, 608×1080 portrait).
 
 **Ejecutar los tests EditMode:**
 
@@ -940,7 +940,7 @@ sistema que quieras asertado.
 | Script | Rol |
 |--------|------|
 | [`BallController`](Assets/Code/Runtime/Gameplay/Player/BallController.cs) | La bola. Movimiento a velocidad constante por uno de dos ejes del mundo (`-X` o `+Z`), ground check por `Physics.Raycast`, caída hecha a mano, rotación visual sin slip (`ω = v/r`), `StartMoving`/`StopMoving`/`ResetTo(position)`/`FlipDirection()` idempotentes. Raises tres events C# — `OnDirectionChanged(Vector3)`, `OnFell`, `OnReset` (disparado dentro de `ResetTo`, lo consume `BallTrailColorizer` para limpiar el trail al respawn) — más un canal opcional `SO_OnDirectionChanged` para la capa de presentación (audio). |
-| [`BallDeathBurst`](Assets/Code/Runtime/Gameplay/Player/BallDeathBurst.cs) | Construye un `ParticleSystem` hijo en `Awake` (sphere shape, world-space, 36 partículas, lifetime 0.65 s) y se suscribe a `BallController.OnFell`. Snapea el host del burst al punto de impacto antes de `Play(true)` para que el burst quede anclado donde la bola se salió del path, no donde acaba tras el freeze-frame. Skin sync opcional vía los slots `_catalog` + `_onSkinEquipped` — `null`-safe; si quedan vacíos, se usa el `_burstColor` autorizado en el inspector (blanco→naranja). |
+| [`BallDeathBurst`](Assets/Code/Runtime/Gameplay/Player/BallDeathBurst.cs) | Construye un `ParticleSystem` hijo en `Awake` (sphere shape, world-space, 36 partículas, lifetime 0.65 s) y se suscribe a `BallController.OnFell`. Snapea el host del burst al punto de impacto antes de `Play(true)` para que el burst quede anclado donde la bola se salió del path, no donde acaba tras el freeze-frame. Además controla la visibilidad de la bola alrededor del momento de muerte: desactiva el `MeshRenderer` hermano al caer para que la bola muerta no quede visible bajo el UI de Game Over, y lo reactiva en `BallController.OnReset` al respawnear (el GameObject sigue activo, así todas las suscripciones de la bola sobreviven al ciclo). Skin sync opcional vía los slots `_catalog` + `_onSkinEquipped` — `null`-safe; si quedan vacíos, se usa el `_burstColor` autorizado en el inspector (blanco→naranja). |
 
 **Cómo usar:** monta el componente en el GameObject de la bola (Unity Sphere primitive a escala 1).
 Arrastra `SO_GameConfig` y el canal SO de dirección a sus slots. La state machine gestiona el ciclo de
@@ -1088,7 +1088,7 @@ El devlog completo está en [`devlog.md`](devlog.md). Un párrafo por iteración
 | 7 | 2026-05-25 | **Paleta cíclica** | `PaletteRulesSO` + `PaletteSampler` + `PaletteController`. Cada 50 puntos de score los colores de plataforma y cámara lerpean a un par complementario fresco. |
 | 8 | 2026-05-26 | **Pulido final** | `PlatformFaller` (plataformas pasadas se desploman), config de build mobile-portrait 608×1080, version `0.9`, audio importado, `_distanceMultiplier` rebalanceado 3→1, música de fondo en loop como segundo `AudioSource` autónomo en el `Main Camera` (sin código). |
 | 9 | 2026-05-27 | **Feedback de gema** | Burst procedural de partículas construido por código al recoger una gema (world-space, material estático compartido, cero assets nuevos); `GemSpawner` traquea el cubo-soporte de cada gema y conduce su Y en `LateUpdate` para que las gemas caigan al ritmo de las plataformas que colapsan, en vez de quedarse flotando. |
-| 10 | 2026-05-27 | **Pulido final (trail + death burst + GlobalForward)** | `TrailRenderer` nativo sobre la bola con `BallTrailColorizer` (dueño del material runtime + ancho para esquivar la trampa de trail magenta/gigante, tinta al skin equipado, limpia en cada respawn); `BallDeathBurst` procedural en el punto de impacto (mirror del burst de `Gem`, skin sync opcional); `GameConfigSO.GlobalForward` consolidado como fuente única de verdad (cierra la deuda de iter 4.2); `CameraFollow` snapea al origen en `SO_OnGameReset`; HUD score animado con un count-up multiplier-agnóstico usando `Time.unscaledDeltaTime` (sobrevive al freeze-frame); el overlay de la tienda oculta el panel del Menu mientras está abierto. |
+| 10 | 2026-05-27 | **Pulido final (trail + death burst + GlobalForward)** | `TrailRenderer` nativo sobre la bola con `BallTrailColorizer` (dueño del material runtime + ancho para esquivar la trampa de trail magenta/gigante, tinta al skin equipado, limpia en cada respawn); `BallDeathBurst` procedural en el punto de impacto (mirror del burst de `Gem`, skin sync opcional, oculta el `MeshRenderer` de la bola al morir y lo restaura en el respawn para que la bola muerta no quede visible bajo el UI de Game Over); `GameConfigSO.GlobalForward` consolidado como fuente única de verdad (cierra la deuda de iter 4.2); `CameraFollow` snapea al origen en `SO_OnGameReset`; HUD score animado con un count-up multiplier-agnóstico usando `Time.unscaledDeltaTime` (sobrevive al freeze-frame); el overlay de la tienda oculta el panel del Menu mientras está abierto. Versión del bundle subida `0.9 → 1.0.0`. |
 
 ---
 

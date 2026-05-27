@@ -686,6 +686,13 @@ namespace ZigZag.Runtime.Gameplay.Player
         // anchored where the ball left the path, not where it ends up after the freeze-frame.
         // Optional skin sync via _catalog + _onSkinEquipped slots (null-safe). Static shared
         // material. Mirror of Gem.BuildPickupBurst — same shader-fallback cascade.
+        //
+        // Iter 10 addendum: also owns the ball's visibility around the death event. In
+        // HandleFell disables MeshRenderer.enabled (the dead ball must not sit visible under
+        // the Game Over panel); in HandleReset (consuming BallController.OnReset) re-enables
+        // it. Only the renderer, NOT gameObject.SetActive(false) — disabling the GO would
+        // kill subscriptions from BallSkinApplier, BallTrailColorizer and the state machine,
+        // and the next Retry would never reach the ball.
     }
 }
 ```
@@ -696,6 +703,7 @@ namespace ZigZag.Runtime.Gameplay.Player
 - **Colorizer is authoritative over trail width**, not just color, as a response to the "magenta oversized trail" incident detected in the first iter-10 build. `[SerializeField, Range]` fields replace the inspector's `Width Curve` (an `AnimationCurve` with two editable keys — an accidental drag breaks the build with no compile warning).
 - **`BallDeathBurst` with a direct C# event, not an SO channel.** Audio listens to `SO_OnGameOver` from another asmdef, so there an SO channel is mandatory. The death burst lives in the same asmdef as `BallController` and a local event is enough — consistent with ADR-004.
 - **Optional skin sync in the burst.** The `_catalog`/`_onSkinEquipped` slots are null-safe. White→orange default contrasts with every skin and every cycling palette; with the catalog wired, feedback gains visual consistency with the ball. It's not mandatory for the burst to work.
+- **Hide the ball with `MeshRenderer.enabled = false`, not `SetActive(false)`** (iter 10 addendum). The burst is the only component that knows the exact impact moment, so the responsibility for hiding the dead ball lives here, not in `BallController`. Disabling the entire GameObject would kill the subscriptions held by `BallSkinApplier`, `BallTrailColorizer` and every handler the ball registers in `OnEnable`; the next `SO_OnGameReset` would never reach it and respawn would break silently. Disabling only the renderer keeps the event cycle intact; restoration hooks `BallController.OnReset` so the mesh comes back on the respawn frame, not before.
 
 ### 7.14 `UIController` (`ZigZag.Runtime.UI`)
 
