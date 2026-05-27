@@ -55,8 +55,6 @@ namespace ZigZag.Runtime.Gameplay.Scoring
         [SerializeField, Tooltip("Raised on boot (loaded best) and whenever the best is overwritten.")]
         private IntGameEventSO _onBestScoreChanged;
 
-        private static readonly Vector3 GlobalForward = new Vector3(-1f, 0f, 1f).normalized;
-
         public int CurrentScore { get; private set; }
         public int BestScore { get; private set; }
 
@@ -104,7 +102,7 @@ namespace ZigZag.Runtime.Gameplay.Scoring
             int newDistanceScore = ScoreCalculator.ComputeDistanceScore(
                 _ballTransform.position,
                 _config.PathStartPosition,
-                GlobalForward,
+                GameConfigSO.GlobalForward,
                 _config.DistanceMultiplier);
 
             if (newDistanceScore == _distanceScore) return;
