@@ -668,3 +668,58 @@ Añadida música de fondo (`Assets/Audio/music.mp3`) **sin tocar código**. La m
 ### Pendiente — setup manual
 
 Ninguno. El componente ya está en la escena y se serializa con `SampleScene.unity`. Si quieres rebalancear el mix, sólo edita el campo `Volume` del `AudioSource` de música en el Inspector del `Main Camera`.
+
+---
+
+## 2026-05-27 — Iteración 9: feedback de gema (burst de partículas + caída con plataforma)
+
+### Objetivo
+
+Cerrar dos huecos visibles tras los playtests de la iter 8:
+
+1. **Recoger una gema no se sentía.** El pickup era un `SetActive(false)` instantáneo: la gema desaparecía sin transición y sólo quedaba el SFX. La memoria del jugador apenas registraba el evento.
+2. **Las gemas se quedaban flotando** cuando el cubo que las soportaba colapsaba (`PlatformFaller`). El cubo caía, la gema se quedaba clavada en el aire — rompía el principio de "lo que el jugador ya pasó deja de existir" que la iter 8 había instalado.
+
+Cero assets nuevos (ni VFX prefab, ni shaders nuevos): todo se construye en runtime desde código para mantener el repo lean.
+
+### Lo que se ha implementado
+
+1. **Burst procedural de partículas en `Gem`** (`Assets/Code/Runtime/Gameplay/Collectibles/Gem.cs`):
+   - `Awake` construye un `ParticleSystem` hijo (`PickupBurst`) con todos los módulos configurados por código: sphere shape (radius 0.05), `simulationSpace = World` (las partículas no siguen a la gema cuando se recicla), burst único de `_burstParticleCount = 18` partículas a `_burstSpeed = 4.5` u/s, `startLifetime = 0.45 s`, `gravityModifier = 0.4`, `size-over-lifetime` curva 1→0, `color-over-lifetime` gradiente alpha 1→0. Renderer en modo Billboard.
+   - 5 campos `[SerializeField]` exponen el tuning (`_burstColor`, `_burstParticleCount`, `_burstLifetime`, `_burstSpeed`, `_burstParticleSize`) — todos con `[Range]` y tooltip. Defaults pensados para el sphere primitive a escala 0.4 del prefab.
+   - `OnTriggerEnter` ahora: raise del evento existente, **desactiva `MeshRenderer.enabled` y `Collider.enabled`** (no `SetActive(false)`, porque desactivar el GO mataría el `ParticleSystem` antes de que reprodujera), `_burst.Play(true)`, arranca coroutine `ReleaseAfterBurst` que hace `WaitForSeconds(_burstLifetime)` antes de soltar al pool.
+   - `Initialize(value, pool)` resetea estado defensivo: cancela coroutine pendiente, re-enable renderer/collider. Cubre el caso raro de que el pool re-sirva la gema antes de que termine el burst (pool stress).
+   - `OnDisable` también para la coroutine y limpia el `ParticleSystem` (`StopEmittingAndClear`) — el pool desactiva la gema al hacer `Release`, así que sin esto un burst en curso al reciclar se quedaría flotando.
+   - **Material compartido estático** (`_sharedBurstMaterial`) — una sola alocación de `Material` por sesión, no una por gema. Lazy init en el primer `Awake` que lo necesita. Búsqueda de shader con cascada de fallbacks: `Particles/Standard Unlit` → `Particles/Unlit` → `Mobile/Particles/Alpha Blended` → `Legacy Shaders/Particles/Alpha Blended` → `Sprites/Default`. Cualquier instalación de Unity 2022.3 tiene al menos uno.
+   - `[RequireComponent(typeof(MeshRenderer))]` añadido — el script ya lo asumía implícitamente.
+
+2. **Tracking de cubo-soporte en `GemSpawner`** (`Assets/Code/Runtime/Gameplay/Collectibles/GemSpawner.cs`):
+   - Lista paralela `_supportCubes` (tamaño igual a `_activeGems`). En `TryPopulateSegment`, cuando se elige el cubo aleatorio del segmento, se guarda la referencia del cubo junto con la gema.
+   - **Nuevo `LateUpdate`**: por cada gema activa, escribe `gem.position.y = supportCube.position.y + _config.GemHeightAboveCubeCenter`. `LateUpdate` (no `Update`) garantiza leer la posición del cubo **después** de que `PlatformFaller.Update` haya integrado la gravedad ese frame, así la gema y el cubo se mueven sincronizados sin lag de un frame.
+   - Skip silencioso si `gem`, `cube` o cualquiera de los dos está `!activeSelf` — el cubo puede haberse reciclado a una posición lejana, no queremos que la gema le siga.
+   - `RemoveTrackingAt(int i)` privado: pequeño helper que sincroniza `RemoveAt` entre las dos listas. Se llama desde los tres puntos donde antes había `_activeGems.RemoveAt(i)` (null, inactiva, behind-buffer). `HandleGameReset` añade `_supportCubes.Clear()` después del `_activeGems.Clear()`.
+
+### Decisiones técnicas
+
+- **`LateUpdate` con write a `transform.position`, no parenting cube→gem.** La opción obvia era `gem.transform.SetParent(cube.transform)`. Se descartó porque el cubo tiene `localScale = (1, 5, 1)` (no uniforme) y la gema viene con `rotation = (45, 0, 45)`. Unity no puede representar la combinación (rotación arbitraria + escala no uniforme del padre) en un `Vector3 localScale`; el resultado visual es una gema *deformada* — aplastada o estirada — el famoso bug de "shear" que sólo se nota cuando el padre no-uniforme entra en escena. Conducir sólo el Y por código evita el problema entero, y es O(N) trivial con N ≤ 50 gemas activas.
+- **Read-after-faller-write garantizado por `LateUpdate`.** `PlatformFaller.Update` corre en la fase `Update`; `GemSpawner.LateUpdate` corre después en el mismo frame. La gema lee siempre la Y del cubo tras la integración de gravedad, sin frame de retraso visible.
+- **Tracking O(N) en una lista paralela, no Dictionary.** N suele ser ≤ 30 gemas activas en cualquier momento. `Dictionary<GameObject, GameObject>` añadiría allocs de boxing-por-GetHashCode y overhead que la traversal lineal no tiene. Las dos `List<GameObject>` se mantienen en lock-step desde un único helper (`RemoveTrackingAt`), así el invariante de tamaños no se rompe.
+- **Burst construido en `Awake` por código, no en el prefab.** Añadir el `ParticleSystem` al prefab `P_Gem` lo acopla al editor: cualquier cambio de tuning pediría editar el prefab y commitearlo. Con el burst en código, las propiedades expuestas en el inspector del componente `Gem` se aplican a cada Get del pool, y dos gemas distintas pueden coexistir con tunings diferentes sin variantes de prefab.
+- **`MeshRenderer.enabled = false` + `Collider.enabled = false`, no `SetActive(false)`.** Si se desactiva el GO entero, el `ParticleSystem` hijo deja de simular y el burst se corta a medio fade. Apagar sólo los componentes "visibles" mantiene el sistema activo el tiempo justo para que `ReleaseAfterBurst` lo devuelva al pool.
+- **Coroutine de release, no `Invoke("ReleaseToPool", lifetime)`.** Una coroutine es cancelable con `StopCoroutine` cuando `Initialize` se llama mientras hay un release pendiente (gema re-servida del pool antes de terminar). `Invoke` no es trivial de cancelar selectivamente.
+- **Material compartido estático.** Cada `new Material(shader)` es una alocación que sobrevive la sesión. Compartirla entre todas las gemas significa que el palette tinting (el `_burstColor` del primer Awake) se aplica a todas — aceptado: el contrato del burst es "amarillo dorado uniforme", no skin-aware. Si hace falta tinting por gema se reintroduce `MaterialPropertyBlock` (`MPB`) — YAGNI por ahora.
+
+### Pendiente — setup manual en Unity
+
+Ninguno. El `ParticleSystem` se construye en `Awake` de cada gema, así que con sólo reabrir la escena las gemas existentes en el pool ya tienen su hijo `PickupBurst`. El prefab `P_Gem` no requiere cambios (sólo el `.prefab` recibió un bump menor de meta para registrar el `[RequireComponent(MeshRenderer)]`, ya cumplido por el sphere primitive).
+
+### Verificación
+
+- Play → recoger gema → la gema desaparece y un burst dorado se queda en el espacio durante ~0.45s, encogiendo y fundiendo a alpha 0. El SFX de coin sigue sonando exactamente en el mismo frame (sin lag).
+- Recoger una gema en una plataforma que está colapsando → el burst se queda en el aire en el punto del pickup (simulación world-space), no se hunde con el cubo.
+- Dejar pasar una gema sin recogerla → la plataforma colapsa → la gema cae con la plataforma a la misma velocidad, manteniendo su offset Y relativo, hasta que `RecycleBehind` la libere por estar fuera del `BehindBuffer`.
+- Profiler: cero `Instantiate` en pickup (el burst se construye una vez en `Awake`); el `Material` aparece en el snapshot exactamente una vez (no `N`). `GemSpawner.LateUpdate` consume <0.05ms con 30 gemas activas.
+
+### Próxima iteración (planteamiento)
+
+Si entra otra sesión: trail renderer en la bola (la única feature de polish visual aún en backlog) o cierre definitivo del deliverable. Decisión a tomar al inicio.

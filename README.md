@@ -523,6 +523,7 @@ The full devlog is at [`devlog.en.md`](devlog.en.md). One paragraph per iteratio
 | 6 | 2026-05-25 | **Audio + freeze-frame + rolling** | New `Audio` asmdef + `AudioManager`. `Time.timeScale = 0` for 0.1s real-time on death before the GameOver panel appears. No-slip visual rolling on the ball (`ω = v/r`). |
 | 7 | 2026-05-25 | **Palette cycling** | `PaletteRulesSO` + `PaletteSampler` + `PaletteController`. Every 50 score points the platform and camera colors lerp to a fresh complementary pair. |
 | 8 | 2026-05-26 | **Final polish** | `PlatformFaller` (passed platforms collapse), mobile-portrait 608×1080 build config, version `0.9`, audio assets imported, `_distanceMultiplier` rebalanced 3→1, looping background music wired as a self-contained second `AudioSource` on the `Main Camera` (no code). |
+| 9 | 2026-05-27 | **Gem feedback** | Procedural particle burst built in code on gem pickup (world-space, shared static material, zero new assets); `GemSpawner` tracks each gem's supporting cube and drives its Y in `LateUpdate` so gems fall in sync with collapsing platforms instead of hovering. |
 
 ---
 
@@ -1081,6 +1082,7 @@ El devlog completo está en [`devlog.md`](devlog.md). Un párrafo por iteración
 | 6 | 2026-05-25 | **Audio + freeze-frame + rolling** | Asmdef `Audio` nuevo + `AudioManager`. `Time.timeScale = 0` durante 0.1s reales al morir antes de mostrar GameOver. Rotación visual sin slip en la bola (`ω = v/r`). |
 | 7 | 2026-05-25 | **Paleta cíclica** | `PaletteRulesSO` + `PaletteSampler` + `PaletteController`. Cada 50 puntos de score los colores de plataforma y cámara lerpean a un par complementario fresco. |
 | 8 | 2026-05-26 | **Pulido final** | `PlatformFaller` (plataformas pasadas se desploman), config de build mobile-portrait 608×1080, version `0.9`, audio importado, `_distanceMultiplier` rebalanceado 3→1, música de fondo en loop como segundo `AudioSource` autónomo en el `Main Camera` (sin código). |
+| 9 | 2026-05-27 | **Feedback de gema** | Burst procedural de partículas construido por código al recoger una gema (world-space, material estático compartido, cero assets nuevos); `GemSpawner` traquea el cubo-soporte de cada gema y conduce su Y en `LateUpdate` para que las gemas caigan al ritmo de las plataformas que colapsan, en vez de quedarse flotando. |
 
 ---
 

@@ -668,3 +668,58 @@ Background music added (`Assets/Audio/music.mp3`) **without touching code**. The
 ### Pending — manual setup
 
 None. The component is already in the scene and serializes with `SampleScene.unity`. If you want to rebalance the mix, just edit the `Volume` field of the music `AudioSource` on the `Main Camera` Inspector.
+
+---
+
+## 2026-05-27 — Iteration 9: gem feedback (particle burst + falling with platform)
+
+### Goal
+
+Close two visible gaps surfaced by iter-8 playtests:
+
+1. **Picking up a gem didn't feel like anything.** The pickup was an instant `SetActive(false)`: the gem vanished with no transition, leaving only the SFX. The player's memory barely registered the event.
+2. **Gems hovered in mid-air** when the cube supporting them collapsed (`PlatformFaller`). The cube fell, the gem stayed pinned in space — broke the "what the player already passed ceases to exist" principle iter 8 had installed.
+
+Zero new assets (no VFX prefab, no new shaders): everything is built at runtime from code to keep the repo lean.
+
+### What was implemented
+
+1. **Procedural particle burst in `Gem`** (`Assets/Code/Runtime/Gameplay/Collectibles/Gem.cs`):
+   - `Awake` builds a child `ParticleSystem` (`PickupBurst`) with every module configured from code: sphere shape (radius 0.05), `simulationSpace = World` (particles don't follow the gem when it's recycled), single burst of `_burstParticleCount = 18` particles at `_burstSpeed = 4.5` u/s, `startLifetime = 0.45 s`, `gravityModifier = 0.4`, `size-over-lifetime` curve 1→0, `color-over-lifetime` gradient alpha 1→0. Renderer in Billboard mode.
+   - 5 `[SerializeField]` fields expose tuning (`_burstColor`, `_burstParticleCount`, `_burstLifetime`, `_burstSpeed`, `_burstParticleSize`) — all with `[Range]` and tooltip. Defaults designed for the prefab's sphere primitive at scale 0.4.
+   - `OnTriggerEnter` now: raise the existing event, **disable `MeshRenderer.enabled` and `Collider.enabled`** (not `SetActive(false)`, because deactivating the GO would kill the `ParticleSystem` before it can play), `_burst.Play(true)`, start a `ReleaseAfterBurst` coroutine that `WaitForSeconds(_burstLifetime)` before releasing to the pool.
+   - `Initialize(value, pool)` resets defensive state: cancels pending coroutine, re-enables renderer/collider. Covers the rare case where the pool re-serves the gem before the burst finishes (pool stress).
+   - `OnDisable` also stops the coroutine and clears the `ParticleSystem` (`StopEmittingAndClear`) — the pool deactivates the gem on `Release`, so without this an in-flight burst at recycle time would linger floating.
+   - **Static shared material** (`_sharedBurstMaterial`) — one `Material` allocation per session, not per gem. Lazy init on the first `Awake` that needs it. Shader lookup with cascading fallbacks: `Particles/Standard Unlit` → `Particles/Unlit` → `Mobile/Particles/Alpha Blended` → `Legacy Shaders/Particles/Alpha Blended` → `Sprites/Default`. Any Unity 2022.3 install has at least one.
+   - `[RequireComponent(typeof(MeshRenderer))]` added — the script was already assuming it implicitly.
+
+2. **Support-cube tracking in `GemSpawner`** (`Assets/Code/Runtime/Gameplay/Collectibles/GemSpawner.cs`):
+   - Parallel list `_supportCubes` (same size as `_activeGems`). In `TryPopulateSegment`, when the random cube of the segment is chosen, the cube reference is stored alongside the gem.
+   - **New `LateUpdate`**: for each active gem, writes `gem.position.y = supportCube.position.y + _config.GemHeightAboveCubeCenter`. `LateUpdate` (not `Update`) guarantees reading the cube's position **after** `PlatformFaller.Update` integrated gravity that frame, so gem and cube move in sync with no one-frame lag.
+   - Silent skip if `gem`, `cube` or either is `!activeSelf` — the cube may have been recycled to a faraway position; we don't want the gem to follow it.
+   - Private `RemoveTrackingAt(int i)`: small helper that keeps `RemoveAt` synchronised across both lists. Called from the three points that previously had `_activeGems.RemoveAt(i)` (null, inactive, behind-buffer). `HandleGameReset` adds `_supportCubes.Clear()` after `_activeGems.Clear()`.
+
+### Technical decisions
+
+- **`LateUpdate` writing `transform.position`, not cube→gem parenting.** The obvious option was `gem.transform.SetParent(cube.transform)`. Rejected because the cube has `localScale = (1, 5, 1)` (non-uniform) and the gem carries `rotation = (45, 0, 45)`. Unity cannot represent the combination (arbitrary rotation + non-uniform parent scale) in a single `Vector3 localScale`; the visual result is a *sheared* gem — squashed or stretched — the classic "shear" bug that only appears once a non-uniform parent enters the picture. Driving only Y in code dodges the problem entirely, and it's trivially O(N) with N ≤ 50 active gems.
+- **Read-after-faller-write guaranteed by `LateUpdate`.** `PlatformFaller.Update` runs in the `Update` phase; `GemSpawner.LateUpdate` runs after it in the same frame. The gem always reads the cube's Y after gravity integration, with no visible lag frame.
+- **O(N) tracking in a parallel list, not a Dictionary.** N is typically ≤ 30 active gems at any moment. `Dictionary<GameObject, GameObject>` would add boxing-on-GetHashCode allocs and overhead the linear traversal doesn't have. Both `List<GameObject>` are kept in lock-step from a single helper (`RemoveTrackingAt`), so the size invariant never breaks.
+- **Burst built in `Awake` by code, not in the prefab.** Adding the `ParticleSystem` to the `P_Gem` prefab couples it to the editor: any tuning change would require editing the prefab and committing it. With the burst in code, the inspector-exposed properties on the `Gem` component apply to every pool Get, and two different gems can coexist with different tunings without prefab variants.
+- **`MeshRenderer.enabled = false` + `Collider.enabled = false`, not `SetActive(false)`.** Deactivating the entire GO stops the child `ParticleSystem` from simulating and the burst cuts mid-fade. Turning off only the "visible" components keeps the system alive long enough for `ReleaseAfterBurst` to hand it back to the pool.
+- **Release coroutine, not `Invoke("ReleaseToPool", lifetime)`.** A coroutine is cancellable with `StopCoroutine` when `Initialize` is called while a release is pending (gem re-served from the pool before the burst finishes). `Invoke` is not trivially selectively cancellable.
+- **Static shared material.** Each `new Material(shader)` is an allocation that survives the session. Sharing it across every gem means the palette tinting (`_burstColor` from the first Awake) applies to all — accepted: the burst's contract is "uniform golden yellow", not skin-aware. If per-gem tinting is needed later, reintroduce `MaterialPropertyBlock` (MPB) — YAGNI for now.
+
+### Pending — manual setup in Unity
+
+None. The `ParticleSystem` is built in each gem's `Awake`, so just reopening the scene gives existing pool gems their `PickupBurst` child. The `P_Gem` prefab needs no changes (only the `.prefab` got a minor meta bump to register the `[RequireComponent(MeshRenderer)]`, already satisfied by the sphere primitive).
+
+### Verification
+
+- Play → pick up gem → the gem vanishes and a golden burst stays in space for ~0.45s, shrinking and fading to alpha 0. The coin SFX still fires on the exact same frame (no lag).
+- Pick up a gem on a collapsing platform → the burst stays in the air at the pickup point (world-space simulation), it does not sink with the cube.
+- Let a gem go uncollected → the platform collapses → the gem falls with the platform at the same speed, keeping its Y offset, until `RecycleBehind` releases it for being past the `BehindBuffer`.
+- Profiler: zero `Instantiate` on pickup (the burst is built once in `Awake`); the `Material` appears in the snapshot exactly once (not `N`). `GemSpawner.LateUpdate` consumes <0.05ms with 30 active gems.
+
+### Next iteration (outline)
+
+If another session lands: trail renderer on the ball (the only visual-polish feature still in backlog) or final deliverable close-out. Decision to be made at the start.
