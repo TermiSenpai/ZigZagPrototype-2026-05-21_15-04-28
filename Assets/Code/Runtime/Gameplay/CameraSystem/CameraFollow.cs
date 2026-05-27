@@ -22,11 +22,6 @@ namespace ZigZag.Runtime.Gameplay.CameraSystem
     [RequireComponent(typeof(Camera))]
     public sealed class CameraFollow : MonoBehaviour
     {
-        // Mirrors PathGenerator.GlobalForward and ScoreManager's forward axis. Kept
-        // local to avoid coupling CameraSystem to PathGenerator; a single source of
-        // truth on GameConfigSO is a separate, future refactor.
-        private static readonly Vector3 GlobalForward = new Vector3(-1f, 0f, 1f).normalized;
-
         [Header("Dependencies")]
         [SerializeField, Tooltip("Source of the SmoothDamp approach time.")]
         private GameConfigSO _config;
@@ -60,7 +55,7 @@ namespace ZigZag.Runtime.Gameplay.CameraSystem
                 _cameraOrigin,
                 _targetOrigin,
                 _target.position,
-                GlobalForward,
+                GameConfigSO.GlobalForward,
                 _lockedY);
 
             transform.position = Vector3.SmoothDamp(
