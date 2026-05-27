@@ -158,7 +158,7 @@ Assets/
 │   └── Tests/
 │       └── EditMode/     ── ZigZag.Tests.EditMode.asmdef       (refs: all of the above)
 ├── Prefabs/                          # P_Ball, P_PlatformCube, P_Gem, P_ShopRow
-├── Scenes/                           # SampleScene.unity
+├── Scenes/                           # S_Main.unity
 └── Settings/                         # SO_GameConfig, SO_PaletteRules, SO_*Event, SO_Skin_*, SO_BallSkinCatalog
 ```
 
@@ -176,7 +176,7 @@ exact graph in `zigzag_architecture.en.md §5`.
 
 1. Clone the repository.
 2. Open the project with Unity Hub. The first import takes ~2 minutes.
-3. Open `Assets/Scenes/SampleScene.unity`.
+3. Open `Assets/Scenes/S_Main.unity`.
 4. Press **Play**. Tap / click / `Space` to start. Tap again to flip direction.
 
 **From a Windows build:**
@@ -719,7 +719,7 @@ Assets/
 │   └── Tests/
 │       └── EditMode/     ── ZigZag.Tests.EditMode.asmdef       (refs: todas las anteriores)
 ├── Prefabs/                          # P_Ball, P_PlatformCube, P_Gem, P_ShopRow
-├── Scenes/                           # SampleScene.unity
+├── Scenes/                           # S_Main.unity
 └── Settings/                         # SO_GameConfig, SO_PaletteRules, SO_*Event, SO_Skin_*, SO_BallSkinCatalog
 ```
 
@@ -737,7 +737,7 @@ El documento de arquitectura lleva el grafo exacto en `zigzag_architecture.md §
 
 1. Clona el repositorio.
 2. Abre el proyecto con Unity Hub. La primera importación tarda ~2 minutos.
-3. Abre `Assets/Scenes/SampleScene.unity`.
+3. Abre `Assets/Scenes/S_Main.unity`.
 4. Pulsa **Play**. Tap / click / `Space` para empezar. Tap otra vez para flipear dirección.
 
 **Desde un build de Windows:**
