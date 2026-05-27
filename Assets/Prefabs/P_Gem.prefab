@@ -148,3 +148,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   _onGemCollected: {fileID: 11400000, guid: 72741e8be2324cc88d2ecbe99aaf7c1d, type: 2}
   _ballTag: Player
+  _burstColor: {r: 1, g: 0.061599992, b: 0.042452812, a: 1}
+  _burstParticleCount: 18
+  _burstLifetime: 0.45
+  _burstSpeed: 4.5
+  _burstParticleSize: 0.14
