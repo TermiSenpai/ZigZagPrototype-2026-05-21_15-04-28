@@ -44,6 +44,9 @@ namespace ZigZag.Runtime.UI
         [SerializeField, Tooltip("GameObject toggled active when the just-ended run beat the previous best. Leave null if not used.")]
         private GameObject _newRecordBadge;
 
+        [SerializeField, Tooltip("Seconds the HUD score takes to visually catch up to the actual score after each change. Speed is auto-derived as gap/duration, so the on-screen number ticks smoothly whether DistanceMultiplier is 2 or 2000 — independent of the multiplier configured in GameConfig.")]
+        private float _hudScoreCatchUpDuration = 0.5f;
+
         [Header("Coins Display")]
         [SerializeField, Tooltip("HUD text showing coins collected during the current run (session counter, resets on retry).")]
         private TextMeshProUGUI _hudCoinsText;
@@ -82,8 +85,19 @@ namespace ZigZag.Runtime.UI
         [SerializeField, Tooltip("Shop panel. UIController only triggers OpenShop on the SHOP button click.")]
         private ShopPanel _shopPanel;
 
+        [SerializeField, Tooltip("Listened-to: shop opened. Hides the Menu panel while the shop overlay is visible.")]
+        private GameEventSO _onShopOpened;
+
+        [SerializeField, Tooltip("Listened-to: shop closed. Restores the Menu panel after the shop overlay hides.")]
+        private GameEventSO _onShopClosed;
+
         private int _lastKnownBest;
         private bool _newBestSeenInThisRun;
+
+        private int _targetHudScore;
+        private float _displayedHudScore;
+        private int _lastShownHudScore = -1;
+        private float _hudCountUpSpeed;
 
         private void Awake()
         {
@@ -114,6 +128,8 @@ namespace ZigZag.Runtime.UI
             if (_onBestScoreChanged != null) _onBestScoreChanged.Register(HandleBestScoreChanged);
             if (_onCoinsChanged != null) _onCoinsChanged.Register(HandleCoinsChanged);
             if (_onSessionCoinsChanged != null) _onSessionCoinsChanged.Register(HandleSessionCoinsChanged);
+            if (_onShopOpened != null) _onShopOpened.Register(HandleShopOpened);
+            if (_onShopClosed != null) _onShopClosed.Register(HandleShopClosed);
         }
 
         private void OnDisable()
@@ -125,6 +141,8 @@ namespace ZigZag.Runtime.UI
             if (_onBestScoreChanged != null) _onBestScoreChanged.Unregister(HandleBestScoreChanged);
             if (_onCoinsChanged != null) _onCoinsChanged.Unregister(HandleCoinsChanged);
             if (_onSessionCoinsChanged != null) _onSessionCoinsChanged.Unregister(HandleSessionCoinsChanged);
+            if (_onShopOpened != null) _onShopOpened.Unregister(HandleShopOpened);
+            if (_onShopClosed != null) _onShopClosed.Unregister(HandleShopClosed);
         }
 
         private void Start()
@@ -143,8 +161,45 @@ namespace ZigZag.Runtime.UI
 
         private void HandleScoreChanged(int newScore)
         {
-            if (_hudScoreText != null) _hudScoreText.text = $"Score: {newScore}";
+            _targetHudScore = newScore;
+            // Snap down on reset so a 0-target never plays a count-down animation.
+            if (newScore < _displayedHudScore)
+            {
+                _displayedHudScore = newScore;
+                _lastShownHudScore = -1;
+                _hudCountUpSpeed = 0f;
+            }
+            else
+            {
+                // Re-derive the count-up speed every score change so the HUD always
+                // reaches the new target in roughly _hudScoreCatchUpDuration seconds,
+                // regardless of how large the per-event jump is (multiplier-agnostic).
+                float gap = newScore - _displayedHudScore;
+                _hudCountUpSpeed = _hudScoreCatchUpDuration > 0f
+                    ? gap / _hudScoreCatchUpDuration
+                    : gap; // duration 0 → instant catch-up next frame.
+            }
+
             if (_gameOverFinalScoreText != null) _gameOverFinalScoreText.text = $"Score: {newScore}";
+        }
+
+        private void Update()
+        {
+            if (_hudScoreText == null) return;
+
+            int shown = Mathf.FloorToInt(_displayedHudScore);
+            if (shown == _targetHudScore && shown == _lastShownHudScore) return;
+
+            if (_displayedHudScore < _targetHudScore)
+            {
+                float step = _hudCountUpSpeed * Time.unscaledDeltaTime;
+                _displayedHudScore = Mathf.MoveTowards(_displayedHudScore, _targetHudScore, step);
+                shown = Mathf.FloorToInt(_displayedHudScore);
+            }
+
+            if (shown == _lastShownHudScore) return;
+            _lastShownHudScore = shown;
+            _hudScoreText.text = $"Score: {shown}";
         }
 
         private void HandleBestScoreChanged(int newBest)
@@ -219,6 +274,16 @@ namespace ZigZag.Runtime.UI
         public void OnShopButtonClicked()
         {
             if (_shopPanel != null) _shopPanel.OpenShop();
+        }
+
+        private void HandleShopOpened()
+        {
+            if (_menuPanel != null) _menuPanel.SetActive(false);
+        }
+
+        private void HandleShopClosed()
+        {
+            if (_menuPanel != null) _menuPanel.SetActive(true);
         }
     }
 }
