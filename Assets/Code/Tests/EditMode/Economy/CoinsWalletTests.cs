@@ -37,7 +37,20 @@ namespace ZigZag.Tests.EditMode.Economy
             _coinsChangedRaiseCount = 0;
             _onCoinsChanged.Register(OnCoinsChangedHandler);
 
-            _go.SetActive(true); // Awake runs now: TotalCoins = 100
+            // EditMode quirk: SetActive(true) does NOT invoke Awake/OnEnable
+            // because there is no PlayerLoop driving MonoBehaviour lifecycle.
+            // Invoke them by reflection so TotalCoins is loaded from PlayerPrefs
+            // and the wallet subscribes to its event channels.
+            _go.SetActive(true);
+            InvokeLifecycle(_wallet, "Awake");
+            InvokeLifecycle(_wallet, "OnEnable");
+        }
+
+        private static void InvokeLifecycle(MonoBehaviour target, string methodName)
+        {
+            MethodInfo m = target.GetType().GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(m, $"Method '{methodName}' not found on {target.GetType().Name}.");
+            m.Invoke(target, null);
         }
 
         [TearDown]
