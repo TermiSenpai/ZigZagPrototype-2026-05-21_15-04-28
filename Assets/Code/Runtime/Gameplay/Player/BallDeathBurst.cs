@@ -1,4 +1,6 @@
 using UnityEngine;
+using ZigZag.Runtime.Events;
+using ZigZag.Runtime.Gameplay.Cosmetics;
 
 namespace ZigZag.Runtime.Gameplay.Player
 {
@@ -15,13 +17,20 @@ namespace ZigZag.Runtime.Gameplay.Player
     /// transform and simulates in world space, so it stays put at the impact
     /// point while the ball continues its visual fall through the
     /// <see cref="Data.GameConfigSO.FreezeFrameOnDeathSeconds"/> window.
+    ///
+    /// The burst tint follows the equipped skin via the same
+    /// <see cref="_onSkinEquipped"/> channel used by <see cref="BallSkinApplier"/>
+    /// and <c>BallTrailColorizer</c>, so the death feedback stays visually
+    /// consistent with the ball and its trail. The inspector-authored
+    /// <see cref="_burstColor"/> survives as the fallback used until the first
+    /// skin-equipped event fires.
     /// </remarks>
     [DisallowMultipleComponent]
     [RequireComponent(typeof(BallController))]
     public sealed class BallDeathBurst : MonoBehaviour
     {
         [Header("Burst Tuning")]
-        [SerializeField, Tooltip("Tint applied to the death burst. White-to-orange contrasts cleanly against every skin and the cycling palette.")]
+        [SerializeField, Tooltip("Fallback tint used until a skin-equipped event arrives. White-to-orange contrasts cleanly against every skin and the cycling palette.")]
         private Color _burstColor = new Color(1f, 0.65f, 0.25f, 1f);
 
         [SerializeField, Range(8, 96), Tooltip("Number of particles emitted on death.")]
@@ -35,6 +44,15 @@ namespace ZigZag.Runtime.Gameplay.Player
 
         [SerializeField, Range(0.05f, 0.6f), Tooltip("Starting size of each particle in world units.")]
         private float _burstParticleSize = 0.18f;
+
+        [Header("Skin Sync (Optional)")]
+        [SerializeField, Tooltip("Catalog used to resolve a skin id into its material. Leave empty to keep the authored burst color.")]
+        private BallSkinCatalogSO _catalog;
+
+        [SerializeField, Tooltip("Listened-to: payload is the newly equipped skin id. Leave empty to keep the authored burst color.")]
+        private StringGameEventSO _onSkinEquipped;
+
+        private static readonly int ColorProperty = Shader.PropertyToID("_Color");
 
         private BallController _ball;
         private ParticleSystem _burst;
@@ -53,12 +71,30 @@ namespace ZigZag.Runtime.Gameplay.Player
         private void OnEnable()
         {
             if (_ball != null) _ball.OnFell += HandleFell;
+            if (_onSkinEquipped != null) _onSkinEquipped.Register(HandleSkinEquipped);
         }
 
         private void OnDisable()
         {
             if (_ball != null) _ball.OnFell -= HandleFell;
+            if (_onSkinEquipped != null) _onSkinEquipped.Unregister(HandleSkinEquipped);
             if (_burst != null) _burst.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        }
+
+        private void HandleSkinEquipped(string skinId)
+        {
+            if (_burst == null || _catalog == null) return;
+            BallSkinSO skin = _catalog.GetById(skinId);
+            if (skin == null || skin.Material == null) return;
+
+            Color tint = skin.Material.HasProperty(ColorProperty)
+                ? skin.Material.GetColor(ColorProperty)
+                : skin.Material.color;
+
+            // MainModule is a struct wrapper; reassigning its startColor writes
+            // back through to the underlying ParticleSystem.
+            ParticleSystem.MainModule main = _burst.main;
+            main.startColor = new Color(tint.r, tint.g, tint.b, 1f);
         }
 
         private void HandleFell()
