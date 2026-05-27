@@ -723,3 +723,73 @@ Ninguno. El `ParticleSystem` se construye en `Awake` de cada gema, así que con 
 ### Próxima iteración (planteamiento)
 
 Si entra otra sesión: trail renderer en la bola (la única feature de polish visual aún en backlog) o cierre definitivo del deliverable. Decisión a tomar al inicio.
+
+---
+
+## 2026-05-27 — Iteración 10: pulido final del entregable (trail + death burst + GlobalForward)
+
+### Objetivo
+
+Cerrar los tres checkboxes pendientes de `zigzag_gdd.md` §13.2 — trail visible detrás de la bola, partículas en el momento de la muerte, build de Windows con capturas — más un refactor pequeño de deuda técnica: deduplicar la constante `GlobalForward` que vivía clonada en `PathGenerator`, `CameraFollow` y `ScoreManager` (TODO explícito desde iter 4.2). Plan en `docs/superpowers/plans/2026-05-27-final-polish-and-deliverable.md`.
+
+### Lo que se ha implementado
+
+1. **`GameConfigSO.GlobalForward`** como única fuente de verdad para el eje diagonal `(-1, 0, 1)/√2`. `PathGenerator`, `CameraFollow` y `ScoreManager` dejan de declarar su copia local y leen el del config. Cuatro commits secuenciales (`dc72c52` → `f460d21`) — el orden es: añadir la constante, migrar cada consumidor en su propio commit para mantener diffs pequeños. Los 24 tests EditMode siguen verdes — el axis es byte-idéntico, sólo cambia la dirección de import.
+
+2. **Trail renderer + `BallTrailColorizer`** (`Assets/Code/Runtime/Gameplay/Cosmetics/BallTrailColorizer.cs`):
+   - El `TrailRenderer` es un componente nativo de Unity sobre el GameObject Player; el colorizer se monta al lado, marcado `[RequireComponent(typeof(BallController))]`.
+   - **El colorizer es autoritativo sobre el material, el ancho y el tiempo del trail**, no sólo sobre el color. En el primer intento el plan dejaba la configuración del trail al inspector y la primera build mostró el trail magenta gigante: el slot `Material` quedó vacío → shader fallback `Hidden/InternalErrorShader` (magenta), y el `Width Curve` del Inspector tenía un Y enorme que escalaba el width de 0.45 a varias unidades de mundo. El fix (`c4351f9`) muda esos campos al script con defaults seguros (`_trailStartWidth = 0.2`, `_trailTime = 0.25`, `_trailMinVertexDistance = 0.05`) y construye el material en runtime con la misma cascada de shader fallbacks que `Gem` y `BallDeathBurst` usan para su material — `Particles/Standard Unlit` → `Particles/Unlit` → `Mobile/Particles/Alpha Blended` → `Legacy Shaders/Particles/Alpha Blended` → `Sprites/Default`. Cualquier instalación de 2022.3 LTS tiene al menos uno.
+   - **Material compartido estático** entre todas las instancias del colorizer (en la práctica sólo hay una bola, pero el patrón es coherente con `Gem._sharedBurstMaterial` y `BallDeathBurst._sharedBurstMaterial`).
+   - Escucha `SO_OnSkinEquipped`, resuelve el `BallSkinSO` vía catalog, lee `Material._Color` (con fallback a `Material.color` por si el shader no expone esa property) y aplica `startColor = (RGB, 1)` / `endColor = (RGB, 0)`. El swap es atómico con el del material principal de la bola (`BallSkinApplier` reacciona al mismo evento), así que comprar un skin nuevo cambia bola **y** trail en el mismo frame.
+   - Escucha también `BallController.OnReset` (nuevo event C# expuesto en iter 10, ver punto 4) → `_trail.Clear()`. Sin esto, al hacer Retry el trail dejaba una línea recta desde la posición de muerte hasta el spawn (el `TrailRenderer` no sabe que la teleportación es una transición, no movimiento).
+
+3. **`BallDeathBurst`** (`Assets/Code/Runtime/Gameplay/Player/BallDeathBurst.cs`):
+   - Mirror exacto del patrón de `Gem.BuildPickupBurst`: construye un `ParticleSystem` hijo en `Awake` (sphere shape radius 0.1, world-space, burst único de 36 partículas a 7 u/s, lifetime 0.65 s, gradiente alpha 1→0), material estático compartido con la misma cascada de shader fallbacks.
+   - Se suscribe a `BallController.OnFell` (event C# directo — mismo asmdef, no hace falta canal SO). En `HandleFell` hace `_burst.transform.position = transform.position` antes de `Play(true)` para anclar el burst en el punto de impacto, no donde acabe la bola después del freeze-frame.
+   - **Skin sync opcional**: dos slots `_catalog` y `_onSkinEquipped` (ambos `null`-safe). Si se wirean, el burst se recolorea al cambiar de skin (mismo flujo que el trail). Si se dejan vacíos, queda el `_burstColor` autorizado en el inspector (blanco→naranja por default — contrasta con cualquier skin/paleta).
+   - `OnDisable` para el `ParticleSystem` defensivamente — si la escena se descarga mid-fall el burst no queda emitiendo en limbo.
+
+4. **`BallController.OnReset`** — nuevo `event Action OnReset` que se dispara dentro de `ResetTo(position)`. Lo consume `BallTrailColorizer` para limpiar el trail (punto 2). Es un event C# local, no un canal SO — vive en el mismo asmdef que los consumidores, así que un asset SO sería ceremonia.
+
+5. **`CameraFollow.HandleGameReset`** — la cámara ahora se suscribe a `SO_OnGameReset` y, al recibirlo, snapea su transform a `(_cameraOrigin.x, _lockedY, _cameraOrigin.z)` y resetea `_smoothVelocity`. Sin esto, después de una run larga la cámara quedaba lejos del origen y el `SmoothDamp` del siguiente run hacía un slingshot visible de varias unidades hacia atrás antes de quedarse quieta sobre el menú.
+
+6. **`UIController` — HUD score con count-up animado**:
+   - Nuevo `_hudScoreCatchUpDuration = 0.5f` (rango exposable). El `HandleScoreChanged` ya no pinta el entero crudo; en su lugar setea `_targetHudScore` y re-deriva `_hudCountUpSpeed = gap / duration` para que el HUD tarde siempre ~0.5s en alcanzar el nuevo total, sea cual sea el tamaño del salto (multiplier-agnóstico — si mañana se sube `_distanceMultiplier` de 1 a 2000 la animación sigue siendo legible).
+   - `Update` interpola con `Mathf.MoveTowards(_displayedHudScore, _targetHudScore, step)` usando `Time.unscaledDeltaTime` para que el freeze-frame de la muerte no lo congele. Snap-down inmediato si el nuevo target es menor (caso del reset a 0) para que no haga un count-down absurdo.
+   - `_lastShownHudScore` evita reescribir el `TextMeshProUGUI.text` cuando el entero a mostrar no ha cambiado entre frames — sin esto, el TMP regeneraría su mesh 60 veces/segundo.
+   - El texto del panel GameOver sigue saltando al valor final inmediatamente (`_gameOverFinalScoreText.text = $"Score: {newScore}"` en el mismo handler) — el count-up sólo aplica al HUD durante la run.
+
+7. **`UIController` — shop oculta el Menu**: nuevos slots `_onShopOpened`/`_onShopClosed`. Cuando se abre la tienda el panel del menú se desactiva, y al cerrarla vuelve. Antes, el shop overlay se solapaba visualmente con el menú, lo que producía botones/textos del menú visibles a través de filas semitransparentes — feo, pero funcional. La pareja open/closed ya existía como canal entre `ShopPanel` y `InputHandler` para suprimir taps; el `UIController` se engancha ahora como segundo listener.
+
+### Decisiones técnicas
+
+- **Material en runtime, no en el `.prefab`**, tanto para el trail como para el burst. Un material por instancia en el prefab haría que cada bola/cada gema arrastrara su clon, rompiendo el batching; un único material compartido estático mantiene una sola alocación por sesión. El precio es que el material no se puede tintar por instancia con `material.color` sin afectar a todas las copias — aceptado porque la decisión real (qué hue muestra el trail/burst) está controlada por el evento de skin, no por una variación per-instance.
+
+- **Trail nativo + colorizador delgado, no componente custom todo-en-uno.** El `TrailRenderer` de Unity ya es la implementación correcta — duplicar su lógica en C# sería ceremonia. El colorizer hace lo único que el componente nativo no sabe: "qué color toca según la skin equipada" + "qué material asignar para no quedar en magenta" + "borrar al respawn". Una responsabilidad, ~120 líneas con doc.
+
+- **`BallTrailColorizer` autoritativo sobre el ancho del trail** tras el incident del trail gigante. Alternativa considerada: dejar los valores en el inspector del `TrailRenderer` y documentar los defaults en el README. Descartada porque el `Width Curve` es un `AnimationCurve` con dos keys editables; un toque accidental al curveeditor del Inspector vuelve a romper la build sin warning de compilación. Mover la configuración a campos `[SerializeField, Range]` del colorizer da defaults reproducibles y los hace inspeccionables en un sitio.
+
+- **Death burst con event C# directo, no canal SO.** El audio del game over sí usa canal SO porque escucha en otro asmdef (`ZigZag.Runtime.Audio`). El death burst vive en el mismo asmdef que `BallController`, así que el event C# local es la herramienta correcta — un canal SO sería overhead de configuración (un asset más que arrastrar) sin payoff. Coherente con la guía "SO para cross-asmdef, event C# para mismo asmdef" usada también por la state machine que escucha `OnFell`.
+
+- **Skin sync opcional en `BallDeathBurst`, no obligatorio.** El burst del menú/comportamiento default funciona sin wiring de skin — los slots `null`-safe. Acoplarlo obligatoriamente al catalog forzaría a wirearlo siempre y a fallar el `Debug.Assert` en escenas que reutilicen la bola sin tienda. Por defecto, blanco→naranja contrasta con todo; con catálogo enganchado, el feedback gana coherencia visual con la bola.
+
+- **Count-up del HUD multiplier-agnóstico.** Alternativa: hard-codear una velocidad fija (ej. 50 puntos/segundo). Descartada porque el feel sería distinto según el multiplier — con `_distanceMultiplier = 1` la animación va perfecta pero al subirlo a 10 cada salto duraría 10× más, descoordinándose con la cadencia real del juego. Calcular `velocidad = gap / duration` en cada cambio garantiza que el HUD tarda siempre lo mismo en "ponerse al día" independientemente de la escala — una propiedad del game feel, no del balance.
+
+- **`Time.unscaledDeltaTime` en el `Update` del count-up.** Si usara `Time.deltaTime`, el freeze-frame de la muerte (`Time.timeScale = 0`) congelaría también la animación, lo que se notaría como un tirón visible: el score llega a la muerte a medio camino y se queda clavado durante 0.1s antes de saltar. Con `unscaledDeltaTime` el count-up sigue corriendo durante el freeze y llega al total final justo cuando aparece el panel.
+
+- **`CameraFollow` se suscribe directamente a `SO_OnGameReset`**, no a un canal nuevo dedicado. Reaprovechar el canal existente es la opción de menor cambio — la cámara ya conocía `GameConfigSO`, sólo le faltaba el event de ciclo de vida; añadir un canal nuevo (`SO_OnCameraResetRequested`) sería un asset más sin información distinta.
+
+### Pendiente
+
+- **Tests** EditMode dedicados al count-up del HUD: la animación es pura aritmética determinista (Mathf.MoveTowards + cálculo de velocidad), y un test sobre 3-4 transiciones cerraría el riesgo de regresión si alguien retoca la fórmula sin pensar.
+- **Build de Windows** + capturas en `docs/screenshots/`: el plan original de iter 10 (Tasks 9-11) los incluía; quedó fuera de esta tanda de commits porque depende del entorno del usuario (build local + Win+Shift+S). README todavía referencia `File → Build And Run` para que el revisor genere su propio binario.
+
+### Verificación
+
+- Play → tap → trail visible detrás de la bola; cambia de color al equipar otro skin desde la tienda sin esperar al próximo run.
+- Caer del path → freeze-frame de 100 ms → burst blanco→naranja en el punto de impacto, partículas dispersándose ~0.65 s con gravity drift; el GameOver panel aparece encima.
+- Retry → el trail se borra de un frame al siguiente (no deja la línea desde la posición de muerte hasta el spawn); la cámara está exactamente donde estaba antes de empezar el run anterior, no hace slingshot.
+- Score en el HUD sube animado en ~0.5 s a cada salto, en el GameOver panel el score salta al valor final sin animar.
+- Abrir la tienda desde el menú → el panel del menú se oculta detrás del overlay; cerrarla → vuelve.
+- Profiler: cero `Material` allocs después del primer Awake; el `TextMeshProUGUI` del HUD regenera mesh sólo cuando el entero a mostrar cambia (no 60 veces/segundo).
+- 24/24 tests EditMode en verde.

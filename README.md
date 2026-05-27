@@ -377,7 +377,8 @@ asserted.
 
 | Script | Role |
 |--------|------|
-| [`BallController`](Assets/Code/Runtime/Gameplay/Player/BallController.cs) | The ball. Constant-speed motion along one of two world axes (`-X` or `+Z`), `Physics.Raycast` ground check, hand-rolled fall, no-slip visual rolling (`ω = v/r`), idempotent `StartMoving`/`StopMoving`/`ResetTo(position)`/`FlipDirection()`. Raises C# `OnDirectionChanged(Vector3)` and `OnFell` events plus an optional `SO_OnDirectionChanged` channel for presentation (audio). |
+| [`BallController`](Assets/Code/Runtime/Gameplay/Player/BallController.cs) | The ball. Constant-speed motion along one of two world axes (`-X` or `+Z`), `Physics.Raycast` ground check, hand-rolled fall, no-slip visual rolling (`ω = v/r`), idempotent `StartMoving`/`StopMoving`/`ResetTo(position)`/`FlipDirection()`. Raises three C# events — `OnDirectionChanged(Vector3)`, `OnFell`, `OnReset` (fired inside `ResetTo`, consumed by `BallTrailColorizer` to clear the trail on respawn) — plus an optional `SO_OnDirectionChanged` channel for presentation (audio). |
+| [`BallDeathBurst`](Assets/Code/Runtime/Gameplay/Player/BallDeathBurst.cs) | Builds a procedural one-shot `ParticleSystem` child in `Awake` (sphere shape, world-space, 36 particles, lifetime 0.65 s) and subscribes to `BallController.OnFell`. Snaps the burst host to the impact point before `Play(true)` so the burst stays anchored where the ball left the path, not where it ends up after the freeze-frame. Optional skin sync via `_catalog` + `_onSkinEquipped` slots — `null`-safe; if left empty, the inspector-authored `_burstColor` (white→orange) is used. |
 
 **How to use:** attach to the ball GameObject (Unity Sphere primitive at scale 1). Drag `SO_GameConfig`
 and the SO direction channel into its slots. The state machine drives the lifecycle — the ball never
@@ -422,7 +423,7 @@ prefab (`P_PlatformCube`), give the generator the pool + ball transform + lifecy
 | Script | Role |
 |--------|------|
 | [`CameraFollowMath`](Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollowMath.cs) | Pure static helper. `ComputeDesiredPosition(...)` projects the target's delta onto `GlobalForward` and returns the desired camera position with `Y` locked. Covered by 7 EditMode tests. |
-| [`CameraFollow`](Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollow.cs) | `MonoBehaviour`. `LateUpdate` calls into the math helper, then `Vector3.SmoothDamp` toward the result with `GameConfigSO.CameraFollowSmoothTime`. |
+| [`CameraFollow`](Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollow.cs) | `MonoBehaviour`. `LateUpdate` calls into the math helper, then `Vector3.SmoothDamp` toward the result with `GameConfigSO.CameraFollowSmoothTime`. Subscribes to `SO_OnGameReset` and snaps the transform back to the captured origin (resetting `_smoothVelocity`) so a long run does not slingshot the view back over many world units when the player retries. |
 
 #### 7.11 — `Gameplay/Cosmetics/`
 
@@ -432,6 +433,7 @@ prefab (`P_PlatformCube`), give the generator the pool + ball transform + lifecy
 | [`BallSkinCatalogSO`](Assets/Code/Runtime/Gameplay/Cosmetics/BallSkinCatalogSO.cs) | Ordered list. First entry is the default (`Price = 0`, always owned). `GetById(string)` for lookups. `OnValidate` checks uniqueness and the price-0 invariant. |
 | [`SkinInventory`](Assets/Code/Runtime/Gameplay/Cosmetics/SkinInventory.cs) | Sole owner of `PlayerPrefs["OwnedSkins"]` (CSV) and `["EquippedSkin"]` (id). Brokers purchase (validates funds via `CoinsWallet.TrySpend`, auto-equips on success) and equip requests raised by the shop. Broadcasts `SO_OnSkinEquipped` (string) + `SO_OnInventoryChanged` (parameterless) on every mutation. |
 | [`BallSkinApplier`](Assets/Code/Runtime/Gameplay/Cosmetics/BallSkinApplier.cs) | Lives on the ball. Listens to `SO_OnSkinEquipped`, resolves the skin via the catalog, swaps `MeshRenderer.sharedMaterial`. Uses `sharedMaterial` deliberately (not `.material`, which would heap-alloc and break batching). |
+| [`BallTrailColorizer`](Assets/Code/Runtime/Gameplay/Cosmetics/BallTrailColorizer.cs) | Owns the look of the ball's `TrailRenderer`: assigns a guaranteed-valid runtime material with a shader-fallback cascade (avoids the magenta `Hidden/InternalErrorShader` placeholder), applies authored width / time / vertex-distance defaults from `[SerializeField, Range]` fields (avoids the oversized-trail trap when the inspector's curve gets nudged), and keeps `startColor` / `endColor` aligned with the equipped `BallSkinSO` by listening to `SO_OnSkinEquipped`. Also listens to `BallController.OnReset` and calls `_trail.Clear()` so the death-fall trail doesn't linger across respawn. |
 
 #### 7.12 — `Gameplay/Aesthetics/`
 
@@ -445,7 +447,7 @@ prefab (`P_PlatformCube`), give the generator the pool + ball transform + lifecy
 
 | Script | Role |
 |--------|------|
-| [`UIController`](Assets/Code/Runtime/UI/UIController.cs) | Owns the three game panels (Menu, HUD, GameOver) and toggles them based on lifecycle SO channels. Updates TMP texts on `SO_OnScoreChanged`, `SO_OnBestScoreChanged`, `SO_OnCoinsChanged`, `SO_OnSessionCoinsChanged`. Shows a `_newRecordBadge` if the run beat the best score. `OnShopButtonClicked()` is wired to the SHOP button and calls `_shopPanel.OpenShop()`. |
+| [`UIController`](Assets/Code/Runtime/UI/UIController.cs) | Owns the three game panels (Menu, HUD, GameOver) and toggles them based on lifecycle SO channels. Updates TMP texts on `SO_OnScoreChanged`, `SO_OnBestScoreChanged`, `SO_OnCoinsChanged`, `SO_OnSessionCoinsChanged`. The HUD score animates with a count-up — speed is auto-derived as `gap / _hudScoreCatchUpDuration` per change, runs on `Time.unscaledDeltaTime` so it survives the death freeze-frame, and snaps down on reset. The GameOver score jumps to the final value with no animation. Shows a `_newRecordBadge` if the run beat the best score. `OnShopButtonClicked()` is wired to the SHOP button and calls `_shopPanel.OpenShop()`. Listens to `SO_OnShopOpened` / `SO_OnShopClosed` to hide/restore the Menu panel while the shop overlay is up. |
 | [`Shop/ShopRowView`](Assets/Code/Runtime/UI/Shop/ShopRowView.cs) | Pure presentation for one shop row. `Bind(skin)` sets the static fields once; `Refresh(owned, equipped, canAfford)` swaps the button label between `BUY {price}`, `EQUIP`, `EQUIPPED` and toggles `interactable`. Raises `SO_OnSkinPurchaseRequested` or `SO_OnSkinEquipRequested` on click, with the skin id as payload. |
 | [`Shop/ShopPanel`](Assets/Code/Runtime/UI/Shop/ShopPanel.cs) | Builds one `ShopRowView` per catalog entry on `Start` inside a `VerticalLayoutGroup`. `OpenShop()` activates the root + raises `SO_OnShopOpened`; `CloseShop()` does the reverse. Refreshes all rows on `SO_OnInventoryChanged` or `SO_OnCoinsChanged`. |
 
@@ -500,7 +502,7 @@ and receiver.
 | `SO_OnSkinEquipRequested` | `StringGameEventSO` | `ShopRowView` | `SkinInventory` |
 | `SO_OnSkinEquipped` | `StringGameEventSO` | `SkinInventory` | `BallSkinApplier`, `ShopPanel` |
 | `SO_OnInventoryChanged` | `GameEventSO` | `SkinInventory` | `ShopPanel` |
-| `SO_OnShopOpened` / `SO_OnShopClosed` | `GameEventSO` | `ShopPanel` | `InputHandler` |
+| `SO_OnShopOpened` / `SO_OnShopClosed` | `GameEventSO` | `ShopPanel` | `InputHandler`, `UIController` (hides the Menu panel while the shop overlay is up) |
 
 ---
 
@@ -524,6 +526,7 @@ The full devlog is at [`devlog.en.md`](devlog.en.md). One paragraph per iteratio
 | 7 | 2026-05-25 | **Palette cycling** | `PaletteRulesSO` + `PaletteSampler` + `PaletteController`. Every 50 score points the platform and camera colors lerp to a fresh complementary pair. |
 | 8 | 2026-05-26 | **Final polish** | `PlatformFaller` (passed platforms collapse), mobile-portrait 608×1080 build config, version `0.9`, audio assets imported, `_distanceMultiplier` rebalanced 3→1, looping background music wired as a self-contained second `AudioSource` on the `Main Camera` (no code). |
 | 9 | 2026-05-27 | **Gem feedback** | Procedural particle burst built in code on gem pickup (world-space, shared static material, zero new assets); `GemSpawner` tracks each gem's supporting cube and drives its Y in `LateUpdate` so gems fall in sync with collapsing platforms instead of hovering. |
+| 10 | 2026-05-27 | **Final polish (trail + death burst + GlobalForward)** | Native `TrailRenderer` on the ball with `BallTrailColorizer` (owns runtime material + width to defeat the magenta/oversized-trail trap, tints to the equipped skin, clears on respawn); procedural `BallDeathBurst` particle system at the impact point (mirror of `Gem` burst, optional skin sync); `GameConfigSO.GlobalForward` consolidated as single source of truth (closes the iter 4.2 debt); `CameraFollow` snaps back to origin on `SO_OnGameReset`; HUD score now animates with a multiplier-agnostic count-up using `Time.unscaledDeltaTime` (survives the freeze-frame); shop overlay hides the Menu panel while open. |
 
 ---
 
@@ -936,7 +939,8 @@ sistema que quieras asertado.
 
 | Script | Rol |
 |--------|------|
-| [`BallController`](Assets/Code/Runtime/Gameplay/Player/BallController.cs) | La bola. Movimiento a velocidad constante por uno de dos ejes del mundo (`-X` o `+Z`), ground check por `Physics.Raycast`, caída hecha a mano, rotación visual sin slip (`ω = v/r`), `StartMoving`/`StopMoving`/`ResetTo(position)`/`FlipDirection()` idempotentes. Raises los events C# `OnDirectionChanged(Vector3)` y `OnFell` más un canal opcional `SO_OnDirectionChanged` para la capa de presentación (audio). |
+| [`BallController`](Assets/Code/Runtime/Gameplay/Player/BallController.cs) | La bola. Movimiento a velocidad constante por uno de dos ejes del mundo (`-X` o `+Z`), ground check por `Physics.Raycast`, caída hecha a mano, rotación visual sin slip (`ω = v/r`), `StartMoving`/`StopMoving`/`ResetTo(position)`/`FlipDirection()` idempotentes. Raises tres events C# — `OnDirectionChanged(Vector3)`, `OnFell`, `OnReset` (disparado dentro de `ResetTo`, lo consume `BallTrailColorizer` para limpiar el trail al respawn) — más un canal opcional `SO_OnDirectionChanged` para la capa de presentación (audio). |
+| [`BallDeathBurst`](Assets/Code/Runtime/Gameplay/Player/BallDeathBurst.cs) | Construye un `ParticleSystem` hijo en `Awake` (sphere shape, world-space, 36 partículas, lifetime 0.65 s) y se suscribe a `BallController.OnFell`. Snapea el host del burst al punto de impacto antes de `Play(true)` para que el burst quede anclado donde la bola se salió del path, no donde acaba tras el freeze-frame. Skin sync opcional vía los slots `_catalog` + `_onSkinEquipped` — `null`-safe; si quedan vacíos, se usa el `_burstColor` autorizado en el inspector (blanco→naranja). |
 
 **Cómo usar:** monta el componente en el GameObject de la bola (Unity Sphere primitive a escala 1).
 Arrastra `SO_GameConfig` y el canal SO de dirección a sus slots. La state machine gestiona el ciclo de
@@ -981,7 +985,7 @@ prefab (`P_PlatformCube`), dale al generator el pool + transform de la bola + ca
 | Script | Rol |
 |--------|------|
 | [`CameraFollowMath`](Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollowMath.cs) | Helper estático puro. `ComputeDesiredPosition(...)` proyecta el delta del target sobre `GlobalForward` y devuelve la posición deseada con `Y` bloqueada. Cubierto por 7 tests EditMode. |
-| [`CameraFollow`](Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollow.cs) | `MonoBehaviour`. `LateUpdate` delega en el helper de matemáticas y luego hace `Vector3.SmoothDamp` hacia el resultado con `GameConfigSO.CameraFollowSmoothTime`. |
+| [`CameraFollow`](Assets/Code/Runtime/Gameplay/CameraSystem/CameraFollow.cs) | `MonoBehaviour`. `LateUpdate` delega en el helper de matemáticas y luego hace `Vector3.SmoothDamp` hacia el resultado con `GameConfigSO.CameraFollowSmoothTime`. Se suscribe a `SO_OnGameReset` y snapea el transform al origen capturado (reseteando `_smoothVelocity`) para que una run larga no haga slingshot visible cuando el jugador hace Retry. |
 
 #### 7.11 — `Gameplay/Cosmetics/`
 
@@ -991,6 +995,7 @@ prefab (`P_PlatformCube`), dale al generator el pool + transform de la bola + ca
 | [`BallSkinCatalogSO`](Assets/Code/Runtime/Gameplay/Cosmetics/BallSkinCatalogSO.cs) | Lista ordenada. La primera entrada es el default (`Price = 0`, siempre owned). `GetById(string)` para lookup. `OnValidate` chequea unicidad y el invariante `price = 0` en la primera. |
 | [`SkinInventory`](Assets/Code/Runtime/Gameplay/Cosmetics/SkinInventory.cs) | Único dueño de `PlayerPrefs["OwnedSkins"]` (CSV) y `["EquippedSkin"]` (id). Brokerea la compra (valida fondos vía `CoinsWallet.TrySpend`, auto-equipa al ganar) y los equip requests que dispara la tienda. Raises `SO_OnSkinEquipped` (string) + `SO_OnInventoryChanged` (parameterless) en cada mutación. |
 | [`BallSkinApplier`](Assets/Code/Runtime/Gameplay/Cosmetics/BallSkinApplier.cs) | Vive en la bola. Escucha `SO_OnSkinEquipped`, resuelve el skin vía el catalog y hace swap de `MeshRenderer.sharedMaterial`. Usa `sharedMaterial` deliberadamente (no `.material`, que haría heap-alloc y rompería el batching). |
+| [`BallTrailColorizer`](Assets/Code/Runtime/Gameplay/Cosmetics/BallTrailColorizer.cs) | Dueño del aspecto del `TrailRenderer` de la bola: asigna en runtime un material válido garantizado con cascada de shader fallbacks (evita el placeholder magenta `Hidden/InternalErrorShader`), aplica los defaults autorizados de ancho/tiempo/distancia de vértice desde campos `[SerializeField, Range]` (evita la trampa de trail gigante cuando alguien toca la curva del inspector), y mantiene `startColor`/`endColor` alineados con el `BallSkinSO` equipado escuchando `SO_OnSkinEquipped`. También escucha `BallController.OnReset` y llama `_trail.Clear()` para que el trail de la caída no quede flotando tras el respawn. |
 
 #### 7.12 — `Gameplay/Aesthetics/`
 
@@ -1004,7 +1009,7 @@ prefab (`P_PlatformCube`), dale al generator el pool + transform de la bola + ca
 
 | Script | Rol |
 |--------|------|
-| [`UIController`](Assets/Code/Runtime/UI/UIController.cs) | Dueño de los tres paneles del juego (Menu, HUD, GameOver) y los togglea según los canales SO de ciclo de vida. Actualiza textos TMP en `SO_OnScoreChanged`, `SO_OnBestScoreChanged`, `SO_OnCoinsChanged`, `SO_OnSessionCoinsChanged`. Muestra `_newRecordBadge` si la run batió el best. `OnShopButtonClicked()` está wireado al botón SHOP y llama `_shopPanel.OpenShop()`. |
+| [`UIController`](Assets/Code/Runtime/UI/UIController.cs) | Dueño de los tres paneles del juego (Menu, HUD, GameOver) y los togglea según los canales SO de ciclo de vida. Actualiza textos TMP en `SO_OnScoreChanged`, `SO_OnBestScoreChanged`, `SO_OnCoinsChanged`, `SO_OnSessionCoinsChanged`. El score del HUD anima con un count-up — la velocidad se re-deriva como `gap / _hudScoreCatchUpDuration` en cada cambio, corre sobre `Time.unscaledDeltaTime` para sobrevivir al freeze-frame de la muerte, y snapea hacia abajo al reset. El score del panel GameOver salta al valor final sin animación. Muestra `_newRecordBadge` si la run batió el best. `OnShopButtonClicked()` está wireado al botón SHOP y llama `_shopPanel.OpenShop()`. Escucha `SO_OnShopOpened` / `SO_OnShopClosed` para ocultar/restaurar el panel del Menu mientras el overlay de la tienda está abierto. |
 | [`Shop/ShopRowView`](Assets/Code/Runtime/UI/Shop/ShopRowView.cs) | Pura presentación de una fila de tienda. `Bind(skin)` setea campos estáticos una vez; `Refresh(owned, equipped, canAfford)` cambia el label del botón entre `BUY {price}`, `EQUIP`, `EQUIPPED` y togglea `interactable`. Raises `SO_OnSkinPurchaseRequested` o `SO_OnSkinEquipRequested` al click, con el id del skin como payload. |
 | [`Shop/ShopPanel`](Assets/Code/Runtime/UI/Shop/ShopPanel.cs) | Construye una `ShopRowView` por entrada del catalog en `Start`, dentro de un `VerticalLayoutGroup`. `OpenShop()` activa el root + raises `SO_OnShopOpened`; `CloseShop()` hace lo inverso. Refresca todas las filas en `SO_OnInventoryChanged` o `SO_OnCoinsChanged`. |
 
@@ -1059,7 +1064,7 @@ entre quien dispara y quien escucha.
 | `SO_OnSkinEquipRequested` | `StringGameEventSO` | `ShopRowView` | `SkinInventory` |
 | `SO_OnSkinEquipped` | `StringGameEventSO` | `SkinInventory` | `BallSkinApplier`, `ShopPanel` |
 | `SO_OnInventoryChanged` | `GameEventSO` | `SkinInventory` | `ShopPanel` |
-| `SO_OnShopOpened` / `SO_OnShopClosed` | `GameEventSO` | `ShopPanel` | `InputHandler` |
+| `SO_OnShopOpened` / `SO_OnShopClosed` | `GameEventSO` | `ShopPanel` | `InputHandler`, `UIController` (oculta el panel del Menu mientras el overlay de la tienda está abierto) |
 
 ---
 
@@ -1083,6 +1088,7 @@ El devlog completo está en [`devlog.md`](devlog.md). Un párrafo por iteración
 | 7 | 2026-05-25 | **Paleta cíclica** | `PaletteRulesSO` + `PaletteSampler` + `PaletteController`. Cada 50 puntos de score los colores de plataforma y cámara lerpean a un par complementario fresco. |
 | 8 | 2026-05-26 | **Pulido final** | `PlatformFaller` (plataformas pasadas se desploman), config de build mobile-portrait 608×1080, version `0.9`, audio importado, `_distanceMultiplier` rebalanceado 3→1, música de fondo en loop como segundo `AudioSource` autónomo en el `Main Camera` (sin código). |
 | 9 | 2026-05-27 | **Feedback de gema** | Burst procedural de partículas construido por código al recoger una gema (world-space, material estático compartido, cero assets nuevos); `GemSpawner` traquea el cubo-soporte de cada gema y conduce su Y en `LateUpdate` para que las gemas caigan al ritmo de las plataformas que colapsan, en vez de quedarse flotando. |
+| 10 | 2026-05-27 | **Pulido final (trail + death burst + GlobalForward)** | `TrailRenderer` nativo sobre la bola con `BallTrailColorizer` (dueño del material runtime + ancho para esquivar la trampa de trail magenta/gigante, tinta al skin equipado, limpia en cada respawn); `BallDeathBurst` procedural en el punto de impacto (mirror del burst de `Gem`, skin sync opcional); `GameConfigSO.GlobalForward` consolidado como fuente única de verdad (cierra la deuda de iter 4.2); `CameraFollow` snapea al origen en `SO_OnGameReset`; HUD score animado con un count-up multiplier-agnóstico usando `Time.unscaledDeltaTime` (sobrevive al freeze-frame); el overlay de la tienda oculta el panel del Menu mientras está abierto. |
 
 ---
 

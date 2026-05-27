@@ -496,6 +496,7 @@ namespace ZigZag.Runtime.Gameplay.Player
     {
         public event Action<Vector3> OnDirectionChanged;
         public event Action OnFell;
+        public event Action OnReset;       // fired inside ResetTo (iter 10)
 
         public Vector3 CurrentDirection { get; private set; }
         public float CurrentSpeed { get; private set; }
@@ -509,6 +510,8 @@ namespace ZigZag.Runtime.Gameplay.Player
 ```
 
 **Internal directions:** `new Vector3(-1f, 0f, 0f)` (pure -X) and `new Vector3(0f, 0f, 1f)` (pure +Z). The internal names `AlongNegativeX` and `AlongPositiveZ` reflect the world axis, not the on-screen appearance. The 45° zigzag illusion is produced by the isometric camera (-45° Y rotation) which projects both axes as diagonals on screen — same trick as the original Ketchapp ZigZag. The path is built with axis-aligned cubes (90° world-space turns).
+
+**Local C# events (iter 10):** `OnReset` is added next to `OnDirectionChanged`/`OnFell`. It fires from `ResetTo(position)` right at the end, after repositioning the ball and resetting flags. Single current consumer: `BallTrailColorizer` uses it to call `_trail.Clear()` and avoid the visible straight line between the death point and the spawn (the `TrailRenderer` would otherwise interpolate the teleport as if it were motion). It's a local C# event because the consumer lives in the same asmdef (`ZigZag.Runtime.Gameplay`) — an SO channel would be ceremony (see ADR-004).
 
 ### 7.5 `PathGenerator` (`ZigZag.Runtime.Gameplay.World`)
 
@@ -637,7 +640,62 @@ Namespace `CameraSystem` (not `Camera`) to avoid colliding with `UnityEngine.Cam
 
 **Movement rule (ADR-014):** the camera advances **only** along the global forward axis `(-1, 0, 1)/√2`. The perpendicular component of the target's displacement is discarded — the frame stays still laterally and the ball visibly snakes across the screen, reproducing the original ZigZag behavior. Y is locked to the camera's initial Y so it doesn't chase the ball as it falls. The math lives in `CameraFollowMath` (static, no Unity lifecycle, covered by EditMode tests in `Assets/Code/Tests/EditMode/Gameplay/CameraSystem/CameraFollowMathTests.cs`).
 
-> **Note — sections 7.11 to 7.13 retired.** They originally contained `IPowerup`, `MagnetPowerup` and `PowerupManager`. The magnet powerup was descoped in iteration 5 (see project memory `project_scope_magnet_skipped`); the skin shop took its slot. Sections are removed so we don't document classes that don't exist in the repo. Numbers 7.11/7.12/7.13 are **left free**; subsequent sections (7.14 `UIController` onward) keep their historical numbering so cross-references with the devlog (`§7.17 CoinsWallet`, `§7.18 GameBootstrap`) don't break.
+**Snap to origin on retry (iter 10):** the camera subscribes to `SO_OnGameReset` and, on receipt, moves its `transform.position` to `(_cameraOrigin.x, _lockedY, _cameraOrigin.z)` and resets `_smoothVelocity = Vector3.zero`. Without this, after a long run the camera was far from the origin and the next run's `SmoothDamp` produced a visible several-world-unit slingshot backward before settling above the menu. The handler is null-safe over the channel and guards against `!_originsCaptured` (origins not yet captured → nothing to return to).
+
+**`GlobalForward` source (iter 10):** the constant is read from `GameConfigSO.GlobalForward`. Previously it lived duplicated in `PathGenerator`, `CameraFollow` and `ScoreManager`; ADR-015 closes the explicit debt registered in the iter 4.2 devlog.
+
+> **Note — sections 7.11 to 7.13 retired and then repopulated.** They originally contained `IPowerup`, `MagnetPowerup` and `PowerupManager`. The magnet powerup was descoped in iteration 5; the skin shop took its slot (iter 5), and later the thin cosmetic components that paint the trail and death burst according to the equipped skin filled the slot (iter 10). Numbers 7.11/7.12/7.13 are reused for those components. Subsequent sections (7.14 `UIController` onward) keep their historical numbering so cross-references with the devlog (`§7.17 CoinsWallet`, `§7.18 GameBootstrap`) don't break.
+
+### 7.11 `BallSkinApplier`, `BallTrailColorizer`, `BallDeathBurst` (Cosmetics + Player layers)
+
+Three thin components that react to the `SO_OnSkinEquipped` channel (string payload = skin id) and keep the ball's presentation coherent without coupling to `BallController`.
+
+```csharp
+namespace ZigZag.Runtime.Gameplay.Cosmetics
+{
+    [DisallowMultipleComponent]
+    public sealed class BallSkinApplier : MonoBehaviour
+    {
+        // Lives on the ball, listens to SO_OnSkinEquipped, swaps MeshRenderer.sharedMaterial = skin.Material.
+    }
+
+    [DisallowMultipleComponent]
+    [RequireComponent(typeof(BallController))]
+    public sealed class BallTrailColorizer : MonoBehaviour
+    {
+        // Iter 10. Authoritative over the TrailRenderer's appearance:
+        //  - material (shader-fallback cascade → defeats the magenta InternalErrorShader placeholder)
+        //  - width, time, minVertexDistance (reproducible defaults; defeats the oversized-trail
+        //    trap from the Inspector's Width Curve being nudged to several world units)
+        //  - startColor/endColor tinted on skin equip (same channel as BallSkinApplier)
+        //  - _trail.Clear() on BallController.OnReset (without this, respawn paints a straight
+        //    line from the death point to the spawn)
+        // The material is statically shared across instances (one allocation per session).
+    }
+}
+
+namespace ZigZag.Runtime.Gameplay.Player
+{
+    [DisallowMultipleComponent]
+    [RequireComponent(typeof(BallController))]
+    public sealed class BallDeathBurst : MonoBehaviour
+    {
+        // Iter 10. Child ParticleSystem built in Awake (sphere shape, world-space, 36 particles,
+        // lifetime 0.65 s, alpha 1→0). Subscribes to BallController.OnFell (C# event); in
+        // HandleFell snaps the host to the impact point before Play(true), so the burst stays
+        // anchored where the ball left the path, not where it ends up after the freeze-frame.
+        // Optional skin sync via _catalog + _onSkinEquipped slots (null-safe). Static shared
+        // material. Mirror of Gem.BuildPickupBurst — same shader-fallback cascade.
+    }
+}
+```
+
+**Decisions:**
+
+- **Native trail + thin colorizer, not a custom all-in-one component.** Unity's `TrailRenderer` is already the right implementation. The only things the native component doesn't know are picking the color per equipped skin, assigning a safe material, and clearing on respawn — and the colorizer covers them in ~120 lines including docstrings.
+- **Colorizer is authoritative over trail width**, not just color, as a response to the "magenta oversized trail" incident detected in the first iter-10 build. `[SerializeField, Range]` fields replace the inspector's `Width Curve` (an `AnimationCurve` with two editable keys — an accidental drag breaks the build with no compile warning).
+- **`BallDeathBurst` with a direct C# event, not an SO channel.** Audio listens to `SO_OnGameOver` from another asmdef, so there an SO channel is mandatory. The death burst lives in the same asmdef as `BallController` and a local event is enough — consistent with ADR-004.
+- **Optional skin sync in the burst.** The `_catalog`/`_onSkinEquipped` slots are null-safe. White→orange default contrasts with every skin and every cycling palette; with the catalog wired, feedback gains visual consistency with the ball. It's not mandatory for the burst to work.
 
 ### 7.14 `UIController` (`ZigZag.Runtime.UI`)
 
@@ -654,7 +712,11 @@ namespace ZigZag.Runtime.UI
 }
 ```
 
-Subscribed to `SO_OnGameStarted`, `SO_OnGameOver`, `SO_OnScoreChanged`, `SO_OnBestScoreChanged`.
+Subscribed to `SO_OnGameStarted`, `SO_OnGameOver`, `SO_OnScoreChanged`, `SO_OnBestScoreChanged`, `SO_OnCoinsChanged`, `SO_OnSessionCoinsChanged`, `SO_OnShopOpened`, `SO_OnShopClosed`.
+
+**Animated HUD count-up (iter 10):** `HandleScoreChanged` no longer paints the raw int. It sets `_targetHudScore` and re-derives `_hudCountUpSpeed = gap / _hudScoreCatchUpDuration` (default 0.5 s). In `Update` it interpolates `_displayedHudScore` with `Mathf.MoveTowards` on `Time.unscaledDeltaTime` — `unscaledDeltaTime` is deliberate so the death freeze-frame (`Time.timeScale = 0`) doesn't pause the animation, which would otherwise feel like a jerk on reaching the GameOver panel. `_lastShownHudScore` skips rewriting the `TextMeshProUGUI.text` when the int to display hasn't changed (without this the TMP regenerates mesh 60 times per second). Immediate snap-down if the target is lower (reset-to-0 case). The GameOver panel score still jumps to the final value with no animation. The multiplier-agnostic speed guarantees any rebalance of `_distanceMultiplier` doesn't change the feel — the HUD always takes the same time to reach the new total.
+
+**Shop hides the Menu (iter 10):** `HandleShopOpened`/`HandleShopClosed` toggle `_menuPanel.SetActive`. Previously the shop overlay sat on top of the menu panel; now it disappears while the shop is open. The `SO_OnShopOpened`/`SO_OnShopClosed` channels already existed (raised by `ShopPanel` to suppress taps in `InputHandler`); the `UIController` hooks in as a second listener — the channel goes from 1 to 2 listeners with no new code on the raiser side.
 
 ### 7.15 `AudioManager` (`ZigZag.Runtime.Audio`)
 
@@ -1106,5 +1168,20 @@ Before packaging the zip:
 
 **Consequences:**
 - The ball's accumulated lateral excursion becomes visible. If it exceeds the frustum width, `orthographicSize` must be tuned or `PathGenerator` biased to bound the drift. This calibration is an independent change axis and is addressed as tuning, not as new code.
-- Resetting the ball at spawn produces a smooth scroll-back of the camera (same behavior as the previous implementation; not a regression).
+- Resetting the ball at spawn produces a smooth scroll-back of the camera (same behavior as the previous implementation; not a regression). **Iter 10 update:** that scroll-back stops being smooth and becomes an instant snap to the origin via `CameraFollow.HandleGameReset` — a long run accumulates several units of forward progress and the next run's `SmoothDamp` produced a visible slingshot. Snap + `_smoothVelocity` reset eliminates it.
 - Math extracted to `CameraFollowMath` for unit testing in EditMode, following the `ScoreCalculator` pattern.
+
+### ADR-015 — `GameConfigSO.GlobalForward` as the single source of truth
+
+**Decision:** the `Vector3 GlobalForward = new Vector3(-1, 0, 1).normalized` constant lives as a `public static readonly` field on `GameConfigSO`. `PathGenerator`, `CameraFollow` and `ScoreManager` read it from there instead of declaring their own copy.
+
+**Alternatives considered:**
+- Keep one local copy per consumer (state before iter 10). Zero coupling between modules, guaranteed drift the day someone retouches one without the others — the debt was explicitly registered in the iter 4.2 devlog.
+- Promote it to a `static class GameConstants` in its own asmdef. Theoretically cleaner, but adds an asmdef for a single constant; `GameConfigSO` is already referenced by the entire gameplay layer.
+
+**Justification:** the constant defines the path's geometry and appears as an argument to `ScoreCalculator.ComputeDistanceScore`, `CameraFollowMath.ComputeDesiredPosition`, and the math of `EnsureAhead`/`RecycleBehind`/`TriggerFalls`. A single source guarantees any change (unlikely, but conceivable — a 60°/120° rotated axis in some future level pack) lands in one place.
+
+**Consequences:**
+- Four sequential commits (`dc72c52` `93f34c7` `33c743b` `f460d21`) consolidate the migration. Small per-consumer diffs; the axis is byte-identical, all 24 EditMode tests pass without modification.
+- Closes the explicit TODO from iter 4.2.
+- Zero runtime cost: `static readonly Vector3` is initialized once at type load and referenced like any field; doesn't require a `GameConfigSO` instance.

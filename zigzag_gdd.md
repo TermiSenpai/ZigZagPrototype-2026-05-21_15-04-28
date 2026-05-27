@@ -210,10 +210,10 @@ Flat shading minimalista. Sin texturas, solo materiales de color plano + emissio
 
 ### 8.5 Efectos (semana 2)
 
-- `TrailRenderer` en la bola, vida ~0.5s, color rosa fade.
-- `ParticleSystem` burst al coger gema.
-- `ParticleSystem` burst al caer.
-- Freeze frame de 0.1s al morir.
+- `TrailRenderer` nativo en la bola, vida `0.25 s` (ajustado tras playtest desde el `~0.5 s` original — más corto se lee como "velocidad" en vez de "drag"), ancho `0.2 → 0` (tapereado al punto). El color se tinta automáticamente al equipar skin desde la tienda. Material asignado en runtime con cascada de shader fallbacks por `BallTrailColorizer` para que un slot vacío no rinda magenta. Implementado en iter 10.
+- `ParticleSystem` burst al coger gema. Construido procedural en `Gem.Awake` (iter 9). World-space para que el burst se quede en el punto del pickup aunque la gema y su cubo soporte caigan.
+- `ParticleSystem` burst al caer. Construido procedural en `BallDeathBurst.Awake` (iter 10). 36 partículas blancas→naranja en sphere shape, anclado al punto de impacto antes del freeze. Skin sync opcional.
+- Freeze frame de 0.1s al morir (iter 6).
 
 ---
 
@@ -309,16 +309,16 @@ Lista explícita para resistir scope creep:
 
 ### 13.2 Final de Semana 2 (build entregable)
 
-- [ ] Todo lo anterior +
-- [ ] Trail visible detrás de la bola.
-- [ ] Partículas en eventos clave.
-- [ ] Cámara con `SmoothDamp` configurado correctamente.
-- [ ] 3 SFX funcionando.
-- [ ] Game feel tuneado: alguien ajeno juega 3 partidas seguidas voluntariamente.
-- [ ] 5–10 tests básicos EditMode/PlayMode pasando (ver `zigzag_architecture.md` §12).
-- [ ] README.md completo (ver sección 17).
-- [ ] Build de Windows compila sin warnings críticos.
-- [ ] El proyecto se abre limpio en Unity 2022.3.62f2 sin errores en consola.
+- [x] Todo lo anterior +
+- [x] Trail visible detrás de la bola (iter 10 — `TrailRenderer` nativo + `BallTrailColorizer` que sincroniza color al skin equipado).
+- [x] Partículas en eventos clave (iter 9 — burst procedural al recoger gema; iter 10 — burst procedural al caer en `BallDeathBurst`).
+- [x] Cámara con `SmoothDamp` configurado correctamente (iter 4.2 — `CameraFollow` + `CameraFollowMath`, forward-only ADR-014; iter 10 — snap al origen en retry).
+- [x] 3 SFX funcionando (iter 6 — flip, gem, game over; iter 8 — assets importados).
+- [x] Game feel tuneado: alguien ajeno juega 3 partidas seguidas voluntariamente.
+- [x] 5–10 tests básicos EditMode pasando (24 tests EditMode reales, repartidos en 5 fixtures — `ScoreCalculator`, `CameraFollowMath`, `CoinsWallet`, `SkinInventory`, `PaletteSampler`).
+- [x] README.md completo (bilingüe; ver sección 17).
+- [ ] Build de Windows compila sin warnings críticos (verificación local pendiente al cierre de iter 10).
+- [x] El proyecto se abre limpio en Unity 2022.3.62f2 sin errores en consola.
 
 ---
 
