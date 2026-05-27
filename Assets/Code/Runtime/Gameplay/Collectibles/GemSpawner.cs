@@ -37,6 +37,13 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
         // become a thing — today it only resets between runs.
         private readonly List<GameObject> _activeGems = new List<GameObject>(32);
 
+        // Parallel to _activeGems: the cube each gem was placed on. The gem follows
+        // its cube's Y in LateUpdate so it falls with the cube without being parented
+        // to it — parenting a (45,0,45)-rotated gem under a non-uniformly-scaled cube
+        // (1,5,1) produces a sheared world transform that Unity can't represent in a
+        // local Vector3 scale, which is what made gems render thin.
+        private readonly List<GameObject> _supportCubes = new List<GameObject>(32);
+
         private void Awake()
         {
             Debug.Assert(_config != null, $"{nameof(GemSpawner)} requires a {nameof(GameConfigSO)} reference.", this);
@@ -54,6 +61,32 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
         private void OnDisable()
         {
             if (_onGameReset != null) _onGameReset.Unregister(HandleGameReset);
+        }
+
+        /// <summary>
+        /// Drives each active gem's Y to track its supporting cube so the gem visibly
+        /// falls when the cube's <c>PlatformFaller</c> collapses it. Runs in
+        /// <c>LateUpdate</c> so it reads the cube's post-fall-step position and the
+        /// gem renders at the correct height the same frame.
+        /// </summary>
+        private void LateUpdate()
+        {
+            if (_config == null) return;
+            float offset = _config.GemHeightAboveCubeCenter;
+
+            for (int i = 0; i < _activeGems.Count; i++)
+            {
+                GameObject gem = _activeGems[i];
+                GameObject cube = _supportCubes[i];
+                if (gem == null || cube == null) continue;
+                // Stop tracking once either side is inactive — the cube may have been
+                // recycled (SetActive(false)) and reused at a new position elsewhere.
+                if (!gem.activeSelf || !cube.activeSelf) continue;
+
+                Vector3 p = gem.transform.position;
+                p.y = cube.transform.position.y + offset;
+                gem.transform.position = p;
+            }
         }
 
         /// <summary>
@@ -83,6 +116,7 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
             Gem gem = gemGo.GetComponent<Gem>();
             if (gem != null) gem.Initialize(_config.GemValue, _pool);
             _activeGems.Add(gemGo);
+            _supportCubes.Add(cube);
         }
 
         /// <summary>
@@ -106,13 +140,13 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
                 GameObject g = _activeGems[i];
                 if (g == null)
                 {
-                    _activeGems.RemoveAt(i);
+                    RemoveTrackingAt(i);
                     continue;
                 }
                 if (!g.activeSelf)
                 {
                     // Already collected (Gem.OnTriggerEnter released it). Prune.
-                    _activeGems.RemoveAt(i);
+                    RemoveTrackingAt(i);
                     continue;
                 }
 
@@ -120,7 +154,7 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
                 if (behindDistance <= behindBuffer) continue;
 
                 _pool.Release(g);
-                _activeGems.RemoveAt(i);
+                RemoveTrackingAt(i);
             }
         }
 
@@ -134,8 +168,15 @@ namespace ZigZag.Runtime.Gameplay.Collectibles
                 if (g != null && g.activeSelf) _pool.Release(g);
             }
             _activeGems.Clear();
+            _supportCubes.Clear();
 
             if (_config != null) _random = CreateRandom();
+        }
+
+        private void RemoveTrackingAt(int i)
+        {
+            _activeGems.RemoveAt(i);
+            _supportCubes.RemoveAt(i);
         }
 
         private System.Random CreateRandom()
