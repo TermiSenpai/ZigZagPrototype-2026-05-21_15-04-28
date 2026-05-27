@@ -54,7 +54,6 @@ namespace ZigZag.Runtime.Gameplay.World
 
         private static readonly Vector3 AlongNegativeX = new Vector3(-1f, 0f, 0f);
         private static readonly Vector3 AlongPositiveZ = new Vector3(0f, 0f, 1f);
-        private static readonly Vector3 GlobalForward = new Vector3(-1f, 0f, 1f).normalized;
         private static readonly Vector3 GlobalPerpendicular = new Vector3(1f, 0f, 1f).normalized;
 
         private readonly Queue<Segment> _segments = new Queue<Segment>(16);
@@ -233,7 +232,7 @@ namespace ZigZag.Runtime.Gameplay.World
                     // Y component of GlobalForward is 0, so a cube that has already started
                     // falling still reports the same forward offset as before — safe to use
                     // its live position here.
-                    float forwardOffset = Vector3.Dot(cube.transform.position - ballPosition, GlobalForward);
+                    float forwardOffset = Vector3.Dot(cube.transform.position - ballPosition, GameConfigSO.GlobalForward);
                     if (forwardOffset > -threshold)
                     {
                         reachedStillAheadCube = true;
@@ -257,7 +256,7 @@ namespace ZigZag.Runtime.Gameplay.World
             while (_segments.Count > 1)
             {
                 Segment oldest = _segments.Peek();
-                float behindDistance = -Vector3.Dot(oldest.LastCubePosition - _ballTransform.position, GlobalForward);
+                float behindDistance = -Vector3.Dot(oldest.LastCubePosition - _ballTransform.position, GameConfigSO.GlobalForward);
                 if (behindDistance <= _config.BehindBuffer) break;
 
                 _segments.Dequeue();
@@ -269,7 +268,7 @@ namespace ZigZag.Runtime.Gameplay.World
             // frame regardless of how many segments were dequeued.
             if (_gemSpawner != null)
             {
-                _gemSpawner.ReleaseGemsBehind(_ballTransform.position, GlobalForward, _config.BehindBuffer);
+                _gemSpawner.ReleaseGemsBehind(_ballTransform.position, GameConfigSO.GlobalForward, _config.BehindBuffer);
             }
         }
 
@@ -382,7 +381,7 @@ namespace ZigZag.Runtime.Gameplay.World
         private float DistanceAhead()
         {
             if (_ballTransform == null) return float.MaxValue;
-            return Vector3.Dot(_lastCubePosition - _ballTransform.position, GlobalForward);
+            return Vector3.Dot(_lastCubePosition - _ballTransform.position, GameConfigSO.GlobalForward);
         }
 
         private Vector3 GetSpawnStep(Vector3 direction)
