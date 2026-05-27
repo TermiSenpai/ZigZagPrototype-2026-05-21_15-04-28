@@ -1,5 +1,6 @@
 using UnityEngine;
 using ZigZag.Runtime.Data;
+using ZigZag.Runtime.Events;
 
 namespace ZigZag.Runtime.Gameplay.CameraSystem
 {
@@ -29,6 +30,10 @@ namespace ZigZag.Runtime.Gameplay.CameraSystem
         [SerializeField, Tooltip("Transform the camera follows. Only its motion along the global forward axis (-1,0,1)/√2 moves the camera.")]
         private Transform _target;
 
+        [Header("Event Channels (Inbound)")]
+        [SerializeField, Tooltip("Listened-to: raised on retry. The camera snaps back to its captured origin so a long run does not slingshot the view back over many world units.")]
+        private GameEventSO _onGameReset;
+
         private Vector3 _cameraOrigin;
         private Vector3 _targetOrigin;
         private float _lockedY;
@@ -45,6 +50,26 @@ namespace ZigZag.Runtime.Gameplay.CameraSystem
         private void Start()
         {
             CaptureOrigins();
+        }
+
+        private void OnEnable()
+        {
+            if (_onGameReset != null) _onGameReset.Register(HandleGameReset);
+        }
+
+        private void OnDisable()
+        {
+            if (_onGameReset != null) _onGameReset.Unregister(HandleGameReset);
+        }
+
+        // Snaps the camera back to its captured origin so a long run does
+        // not slingshot the view back over many world units when the player
+        // retries. The Y plane is already locked, so only X/Z need a reset.
+        private void HandleGameReset()
+        {
+            if (!_originsCaptured) return;
+            transform.position = new Vector3(_cameraOrigin.x, _lockedY, _cameraOrigin.z);
+            _smoothVelocity = Vector3.zero;
         }
 
         private void LateUpdate()
